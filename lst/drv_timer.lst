@@ -1,0 +1,507 @@
+C51 COMPILER V9.59.0.0   DRV_TIMER                                                         06/28/2022 11:43:47 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE DRV_TIMER
+OBJECT MODULE PLACED IN .\out\drv_timer.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\drv_timer.c OPTIMIZE(7,SPEED) BROWSE NOAREGS INCDIR(.\inc) DEFINE(xL
+                    -DO_5V) DEBUG OBJECTEXTEND CODE PRINT(.\lst\drv_timer.lst) TABS(2) OBJECT(.\out\drv_timer.obj)
+
+line level    source
+
+   1          
+   2          #include "drv_timer.h"
+   3          #include "types.h"
+   4          #include "sys_message.h"
+   5          
+   6          
+   7          #define     EV_TIMER_SUM      12
+   8          
+   9          
+  10          ev_timer_t  xdata ev_timer[EV_TIMER_SUM];
+  11          
+  12          uint8_t     drv_timer_tick;
+  13          
+  14          /******************************************************************************************
+  15          *  FUNCTION NAME:     
+  16          *  INPUTS:        
+  17          *  OUTPUTS:      
+  18          *  VALUE RETURNED:     void.
+  19          *  DESCRIPTION:      
+  20          *  CAUTIONS:    .
+  21          ******************************************************************************************
+  22          * MODIFICATION HISTORY:
+  23          * Date          Person                  Change
+  24          * ---------------------------------------------------------------------------------------
+  25          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  26          ******************************************************************************************/
+  27          void Init_evTimers(void)
+  28          {
+  29   1        uint8_t u8_Index;
+  30   1      
+  31   1          for(u8_Index = 0; u8_Index < EV_TIMER_SUM; u8_Index++)
+  32   1          {
+  33   2                ev_timer[u8_Index].delay = 0;
+  34   2          }
+  35   1      }
+  36          
+  37          
+  38          /******************************************************************************************
+  39          *  FUNCTION NAME:     
+  40          *  INPUTS:        
+  41          *  OUTPUTS:      
+  42          *  VALUE RETURNED:     void.
+  43          *  DESCRIPTION:      
+  44          *  CAUTIONS:    .
+  45          ******************************************************************************************
+  46          * MODIFICATION HISTORY:
+  47          * Date          Person                  Change
+  48          * ---------------------------------------------------------------------------------------
+  49          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  50          ******************************************************************************************/
+  51          void Start_evTimer( uint16_t Time,  uint8_t ev     )
+  52          {
+  53   1        ev_timer_t  *pTimer;
+  54   1        ev_timer_t  *pFreeTimer = NULL;
+C51 COMPILER V9.59.0.0   DRV_TIMER                                                         06/28/2022 11:43:47 PAGE 2   
+
+  55   1        uint8_t     u8_Index;
+  56   1      
+  57   1            pTimer = ev_timer;
+  58   1            for(u8_Index = 0; u8_Index < EV_TIMER_SUM; u8_Index++)
+  59   1            {
+  60   2                  if(pTimer->delay == 0)
+  61   2                  {
+  62   3                 /* This timer entry is free i.e. timer not running */
+  63   3                          if(pFreeTimer == NULL)
+  64   3                          {
+  65   4                     /* This is the first free entry in the timer array */
+  66   4                      pFreeTimer = pTimer;
+  67   4                          }
+  68   3                 }
+  69   2                  else
+  70   2                  {
+  71   3      
+  72   3                            if(pTimer->ev == ev)
+  73   3                            {
+  74   4                        /* This running timer has the same destination as
+  75   4                       * the requested one
+  76   4                      */
+  77   4                        if(pFreeTimer != NULL)
+  78   4                        {
+  79   5                     /* We found a free timer entry with a lower index already.
+  80   5                        * Use this entry to save time 
+  81   5                        */
+  82   5                                        pTimer->delay = 0;
+  83   5                         }
+  84   4                         else
+  85   4                       {
+  86   5                                      pFreeTimer = pTimer;
+  87   5                         }
+  88   4                        break; /* Abort search over array */
+  89   4                            }
+  90   3                  }
+  91   2              pTimer++;
+  92   2         }
+  93   1      
+  94   1         pFreeTimer->delay   = Time;
+  95   1           pFreeTimer->ev      = ev;
+  96   1      
+  97   1      }
+  98          
+  99          /******************************************************************************************
+ 100          *  FUNCTION NAME:     
+ 101          *  INPUTS:        
+ 102          *  OUTPUTS:      
+ 103          *  VALUE RETURNED:     void.
+ 104          *  DESCRIPTION:      
+ 105          *  CAUTIONS:    .
+ 106          ******************************************************************************************
+ 107          * MODIFICATION HISTORY:
+ 108          * Date          Person                  Change
+ 109          * ---------------------------------------------------------------------------------------
+ 110          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 111          ******************************************************************************************/
+ 112          void Stop_evTimer(uint8_t ev){
+ 113   1        ev_timer_t  *pTimer;
+ 114   1        uint8_t      u8_Index;
+ 115   1      
+ 116   1         //BoardDisableIrq();
+C51 COMPILER V9.59.0.0   DRV_TIMER                                                         06/28/2022 11:43:47 PAGE 3   
+
+ 117   1          
+ 118   1          pTimer = ev_timer;
+ 119   1          for(u8_Index = 0; u8_Index < EV_TIMER_SUM; u8_Index++)
+ 120   1          {
+ 121   2              if (pTimer->delay)
+ 122   2              {
+ 123   3       
+ 124   3             if(pTimer->ev == ev) 
+ 125   3              {
+ 126   4                  pTimer->delay = 0; /* Timer entry found */
+ 127   4              }
+ 128   3            }
+ 129   2              pTimer++;
+ 130   2          }
+ 131   1      
+ 132   1          
+ 133   1        //BoardEnableIrq();
+ 134   1        
+ 135   1      }
+ 136          
+ 137          /******************************************************************************************
+ 138          *  FUNCTION NAME:     
+ 139          *  INPUTS:        
+ 140          *  OUTPUTS:      
+ 141          *  VALUE RETURNED:     void.
+ 142          *  DESCRIPTION:      
+ 143          *  CAUTIONS:    .
+ 144          ******************************************************************************************
+ 145          * MODIFICATION HISTORY:
+ 146          * Date          Person                  Change
+ 147          * ---------------------------------------------------------------------------------------
+ 148          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 149          ******************************************************************************************/
+ 150          
+ 151          void drv_time(void){
+ 152   1      
+ 153   1      
+ 154   1      ev_timer_t  *pTimer;
+ 155   1      uint8_t   u8_Index;
+ 156   1          if(drv_timer_tick<DRV_TIMER_TICK) return ;
+ 157   1          drv_timer_tick=0;
+ 158   1      
+ 159   1            pTimer=ev_timer;
+ 160   1          for(u8_Index = 0; u8_Index < EV_TIMER_SUM; u8_Index++)
+ 161   1            {
+ 162   2              if(pTimer->delay != 0)
+ 163   2              {
+ 164   3                  if(pTimer->delay <= 1)
+ 165   3                  {
+ 166   4                    pTimer->delay = 0; /* Timer expired */
+ 167   4                    put_message( pTimer->ev,0);
+ 168   4                  }
+ 169   3                  else
+ 170   3                  {
+ 171   4                   pTimer->delay --; /* Timer still running */
+ 172   4                  }
+ 173   3              }
+ 174   2              pTimer++;
+ 175   2          }
+ 176   1      
+ 177   1      }
+C51 COMPILER V9.59.0.0   DRV_TIMER                                                         06/28/2022 11:43:47 PAGE 4   
+
+ASSEMBLY LISTING OF GENERATED OBJECT CODE
+
+
+             ; FUNCTION Init_evTimers (BEGIN)
+                                           ; SOURCE LINE # 27
+                                           ; SOURCE LINE # 28
+                                           ; SOURCE LINE # 31
+;---- Variable 'u8_Index' assigned to Register 'R7' ----
+0000 E4                CLR     A
+0001 FF                MOV     R7,A
+0002         ?C0001:
+0002 EF                MOV     A,R7
+0003 C3                CLR     C
+0004 940C              SUBB    A,#0CH
+0006 7480              MOV     A,#080H
+0008 9480              SUBB    A,#080H
+000A 5015              JNC     ?C0004
+                                           ; SOURCE LINE # 32
+                                           ; SOURCE LINE # 33
+000C EF                MOV     A,R7
+000D 25E0              ADD     A,ACC
+000F 25E0              ADD     A,ACC
+0011 2400        R     ADD     A,#LOW ev_timer+02H
+0013 F582              MOV     DPL,A
+0015 E4                CLR     A
+0016 3400        R     ADDC    A,#HIGH ev_timer+02H
+0018 F583              MOV     DPH,A
+001A E4                CLR     A
+001B F0                MOVX    @DPTR,A
+001C A3                INC     DPTR
+001D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 34
+001E 0F                INC     R7
+001F 80E1              SJMP    ?C0001
+                                           ; SOURCE LINE # 35
+0021         ?C0004:
+0021 22                RET     
+             ; FUNCTION Init_evTimers (END)
+
+             ; FUNCTION _Start_evTimer (BEGIN)
+                                           ; SOURCE LINE # 51
+0000 8E00        R     MOV     Time,R6
+0002 8F00        R     MOV     Time+01H,R7
+;---- Variable 'ev' assigned to Register 'R5' ----
+                                           ; SOURCE LINE # 52
+                                           ; SOURCE LINE # 54
+0004 750000      R     MOV     pFreeTimer,#00H
+0007 750000      R     MOV     pFreeTimer+01H,#00H
+000A 750000      R     MOV     pFreeTimer+02H,#00H
+                                           ; SOURCE LINE # 57
+000D 750001      R     MOV     pTimer,#01H
+0010 750000      R     MOV     pTimer+01H,#HIGH ev_timer
+0013 750000      R     MOV     pTimer+02H,#LOW ev_timer
+                                           ; SOURCE LINE # 58
+;---- Variable 'u8_Index' assigned to Register 'R7' ----
+0016 E4                CLR     A
+0017 FF                MOV     R7,A
+0018         ?C0005:
+0018 EF                MOV     A,R7
+0019 C3                CLR     C
+001A 940C              SUBB    A,#0CH
+001C 7480              MOV     A,#080H
+C51 COMPILER V9.59.0.0   DRV_TIMER                                                         06/28/2022 11:43:47 PAGE 5   
+
+001E 9480              SUBB    A,#080H
+0020 505B              JNC     ?C0006
+                                           ; SOURCE LINE # 59
+                                           ; SOURCE LINE # 60
+0022 AB00        R     MOV     R3,pTimer
+0024 AA00        R     MOV     R2,pTimer+01H
+0026 A900        R     MOV     R1,pTimer+02H
+0028 900002            MOV     DPTR,#02H
+002B 120000      E     LCALL   ?C?ILDOPTR
+002E 45F0              ORL     A,B
+0030 7010              JNZ     ?C0008
+                                           ; SOURCE LINE # 61
+                                           ; SOURCE LINE # 63
+0032 E500        R     MOV     A,pFreeTimer+02H
+0034 4500        R     ORL     A,pFreeTimer+01H
+0036 4500        R     ORL     A,pFreeTimer
+0038 7035              JNZ     ?C0010
+                                           ; SOURCE LINE # 64
+                                           ; SOURCE LINE # 66
+003A 8B00        R     MOV     pFreeTimer,R3
+003C 8A00        R     MOV     pFreeTimer+01H,R2
+003E 8900        R     MOV     pFreeTimer+02H,R1
+                                           ; SOURCE LINE # 67
+                                           ; SOURCE LINE # 68
+0040 802D              SJMP    ?C0010
+0042         ?C0008:
+                                           ; SOURCE LINE # 70
+                                           ; SOURCE LINE # 72
+0042 AB00        R     MOV     R3,pTimer
+0044 AA00        R     MOV     R2,pTimer+01H
+0046 A900        R     MOV     R1,pTimer+02H
+0048 900001            MOV     DPTR,#01H
+004B 120000      E     LCALL   ?C?CLDOPTR
+004E 6D                XRL     A,R5
+004F 701E              JNZ     ?C0010
+                                           ; SOURCE LINE # 73
+                                           ; SOURCE LINE # 77
+0051 E500        R     MOV     A,pFreeTimer+02H
+0053 4500        R     ORL     A,pFreeTimer+01H
+0055 4500        R     ORL     A,pFreeTimer
+0057 600B              JZ      ?C0012
+                                           ; SOURCE LINE # 78
+                                           ; SOURCE LINE # 82
+0059 900002            MOV     DPTR,#02H
+005C E4                CLR     A
+005D F5F0              MOV     B,A
+005F 120000      E     LCALL   ?C?ISTOPTR
+                                           ; SOURCE LINE # 83
+0062 8019              SJMP    ?C0006
+0064         ?C0012:
+                                           ; SOURCE LINE # 85
+                                           ; SOURCE LINE # 86
+0064 850000      R     MOV     pFreeTimer,pTimer
+0067 850000      R     MOV     pFreeTimer+01H,pTimer+01H
+006A 850000      R     MOV     pFreeTimer+02H,pTimer+02H
+                                           ; SOURCE LINE # 87
+                                           ; SOURCE LINE # 88
+006D 800E              SJMP    ?C0006
+                                           ; SOURCE LINE # 89
+                                           ; SOURCE LINE # 90
+006F         ?C0010:
+                                           ; SOURCE LINE # 91
+C51 COMPILER V9.59.0.0   DRV_TIMER                                                         06/28/2022 11:43:47 PAGE 6   
+
+006F 7404              MOV     A,#04H
+0071 2500        R     ADD     A,pTimer+02H
+0073 F500        R     MOV     pTimer+02H,A
+0075 E4                CLR     A
+0076 3500        R     ADDC    A,pTimer+01H
+0078 F500        R     MOV     pTimer+01H,A
+                                           ; SOURCE LINE # 92
+007A 0F                INC     R7
+007B 809B              SJMP    ?C0005
+007D         ?C0006:
+                                           ; SOURCE LINE # 94
+007D AB00        R     MOV     R3,pFreeTimer
+007F AA00        R     MOV     R2,pFreeTimer+01H
+0081 A900        R     MOV     R1,pFreeTimer+02H
+0083 900002            MOV     DPTR,#02H
+0086 E500        R     MOV     A,Time
+0088 8500F0      R     MOV     B,Time+01H
+008B 120000      E     LCALL   ?C?ISTOPTR
+                                           ; SOURCE LINE # 95
+008E 900001            MOV     DPTR,#01H
+0091 ED                MOV     A,R5
+0092 120000      E     LCALL   ?C?CSTOPTR
+                                           ; SOURCE LINE # 97
+0095 22                RET     
+             ; FUNCTION _Start_evTimer (END)
+
+             ; FUNCTION _Stop_evTimer (BEGIN)
+                                           ; SOURCE LINE # 112
+;---- Variable 'ev' assigned to Register 'R7' ----
+                                           ; SOURCE LINE # 118
+0000 7B01              MOV     R3,#01H
+0002 7A00        R     MOV     R2,#HIGH ev_timer
+0004 7900        R     MOV     R1,#LOW ev_timer
+;---- Variable 'pTimer' assigned to Register 'R1/R2/R3' ----
+                                           ; SOURCE LINE # 119
+;---- Variable 'u8_Index' assigned to Register 'R6' ----
+0006 E4                CLR     A
+0007 FE                MOV     R6,A
+0008         ?C0015:
+0008 EE                MOV     A,R6
+0009 C3                CLR     C
+000A 940C              SUBB    A,#0CH
+000C 7480              MOV     A,#080H
+000E 9480              SUBB    A,#080H
+0010 5025              JNC     ?C0020
+                                           ; SOURCE LINE # 120
+                                           ; SOURCE LINE # 121
+0012 900002            MOV     DPTR,#02H
+0015 120000      E     LCALL   ?C?ILDOPTR
+0018 45F0              ORL     A,B
+001A 6011              JZ      ?C0018
+                                           ; SOURCE LINE # 122
+                                           ; SOURCE LINE # 124
+001C 900001            MOV     DPTR,#01H
+001F 120000      E     LCALL   ?C?CLDOPTR
+0022 6F                XRL     A,R7
+0023 7008              JNZ     ?C0018
+                                           ; SOURCE LINE # 125
+                                           ; SOURCE LINE # 126
+0025 900002            MOV     DPTR,#02H
+0028 F5F0              MOV     B,A
+002A 120000      E     LCALL   ?C?ISTOPTR
+C51 COMPILER V9.59.0.0   DRV_TIMER                                                         06/28/2022 11:43:47 PAGE 7   
+
+                                           ; SOURCE LINE # 127
+                                           ; SOURCE LINE # 128
+002D         ?C0018:
+                                           ; SOURCE LINE # 129
+002D 7404              MOV     A,#04H
+002F 29                ADD     A,R1
+0030 F9                MOV     R1,A
+0031 E4                CLR     A
+0032 3A                ADDC    A,R2
+0033 FA                MOV     R2,A
+                                           ; SOURCE LINE # 130
+0034 0E                INC     R6
+0035 80D1              SJMP    ?C0015
+                                           ; SOURCE LINE # 135
+0037         ?C0020:
+0037 22                RET     
+             ; FUNCTION _Stop_evTimer (END)
+
+             ; FUNCTION drv_time (BEGIN)
+                                           ; SOURCE LINE # 151
+                                           ; SOURCE LINE # 156
+0000 C3                CLR     C
+0001 E500        R     MOV     A,drv_timer_tick
+0003 940A              SUBB    A,#0AH
+0005 7480              MOV     A,#080H
+0007 9480              SUBB    A,#080H
+0009 406B              JC      ?C0022
+                                           ; SOURCE LINE # 157
+000B E4                CLR     A
+000C F500        R     MOV     drv_timer_tick,A
+                                           ; SOURCE LINE # 159
+000E 750001      R     MOV     pTimer,#01H
+0011 750000      R     MOV     pTimer+01H,#HIGH ev_timer
+0014 750000      R     MOV     pTimer+02H,#LOW ev_timer
+                                           ; SOURCE LINE # 160
+0017 F500        R     MOV     u8_Index,A
+0019         ?C0023:
+0019 C3                CLR     C
+001A E500        R     MOV     A,u8_Index
+001C 940C              SUBB    A,#0CH
+001E 7480              MOV     A,#080H
+0020 9480              SUBB    A,#080H
+0022 5052              JNC     ?C0022
+                                           ; SOURCE LINE # 161
+                                           ; SOURCE LINE # 162
+0024 AB00        R     MOV     R3,pTimer
+0026 AA00        R     MOV     R2,pTimer+01H
+0028 A900        R     MOV     R1,pTimer+02H
+002A 900002            MOV     DPTR,#02H
+002D 120000      E     LCALL   ?C?ILDOPTR
+0030 FF                MOV     R7,A
+0031 AEF0              MOV     R6,B
+0033 4E                ORL     A,R6
+0034 6031              JZ      ?C0026
+                                           ; SOURCE LINE # 163
+                                           ; SOURCE LINE # 164
+0036 D3                SETB    C
+0037 EF                MOV     A,R7
+0038 9401              SUBB    A,#01H
+003A EE                MOV     A,R6
+003B 9400              SUBB    A,#00H
+003D 5018              JNC     ?C0027
+C51 COMPILER V9.59.0.0   DRV_TIMER                                                         06/28/2022 11:43:47 PAGE 8   
+
+                                           ; SOURCE LINE # 165
+                                           ; SOURCE LINE # 166
+003F 900002            MOV     DPTR,#02H
+0042 E4                CLR     A
+0043 F5F0              MOV     B,A
+0045 120000      E     LCALL   ?C?ISTOPTR
+                                           ; SOURCE LINE # 167
+0048 900001            MOV     DPTR,#01H
+004B 120000      E     LCALL   ?C?CLDOPTR
+004E FF                MOV     R7,A
+004F E4                CLR     A
+0050 FD                MOV     R5,A
+0051 FC                MOV     R4,A
+0052 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 168
+0055 8010              SJMP    ?C0026
+0057         ?C0027:
+                                           ; SOURCE LINE # 170
+                                           ; SOURCE LINE # 171
+0057 AB00        R     MOV     R3,pTimer
+0059 AA00        R     MOV     R2,pTimer+01H
+005B A900        R     MOV     R1,pTimer+02H
+005D 900002            MOV     DPTR,#02H
+0060 74FF              MOV     A,#0FFH
+0062 F5F0              MOV     B,A
+0064 120000      E     LCALL   ?C?IILDOPTR
+                                           ; SOURCE LINE # 172
+                                           ; SOURCE LINE # 173
+0067         ?C0026:
+                                           ; SOURCE LINE # 174
+0067 7404              MOV     A,#04H
+0069 2500        R     ADD     A,pTimer+02H
+006B F500        R     MOV     pTimer+02H,A
+006D E4                CLR     A
+006E 3500        R     ADDC    A,pTimer+01H
+0070 F500        R     MOV     pTimer+01H,A
+                                           ; SOURCE LINE # 175
+0072 0500        R     INC     u8_Index
+0074 80A3              SJMP    ?C0023
+                                           ; SOURCE LINE # 177
+0076         ?C0022:
+0076 22                RET     
+             ; FUNCTION drv_time (END)
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    359    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     48    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1      12
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

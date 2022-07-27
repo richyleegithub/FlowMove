@@ -1,0 +1,210 @@
+C51 COMPILER V9.59.0.0   SYS_MESSAGE                                                       06/28/2022 11:43:46 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE SYS_MESSAGE
+OBJECT MODULE PLACED IN .\out\sys_message.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\sys_message.c OPTIMIZE(7,SPEED) BROWSE NOAREGS INCDIR(.\inc) DEFINE(
+                    -xLDO_5V) DEBUG OBJECTEXTEND CODE PRINT(.\lst\sys_message.lst) TABS(2) OBJECT(.\out\sys_message.obj)
+
+line level    source
+
+   1          
+   2          #include "sys_message.h"
+   3          
+   4          message_t  message[MESSAGE_MAX_NUM];
+   5          uint8_t    fetch_msg;
+   6          uint8_t    total_msg;
+   7          /*=========================================================
+   8          * FUNCTION NAME: ini_message
+   9          * input :        none
+  10          * Output:        none
+  11          * description:   
+  12          *********************************************************
+  13          author          release             date
+  14          *********************************************************
+  15          richy.lee       first release       2022/04/21
+  16          ===========================================================*/
+  17          void ini_message(void){
+  18   1          fetch_msg=0;
+  19   1          total_msg=0;
+  20   1      }
+  21          /*=========================================================
+  22          * FUNCTION NAME: put_message
+  23          * input :        none
+  24          * Output:        none
+  25          * description:   
+  26          *********************************************************
+  27          author          release             date
+  28          *********************************************************
+  29          richy.lee       first release       2022/04/21
+  30          ===========================================================*/
+  31          void put_message(uint8_t msg,uint16_t info){
+  32   1      uint8_t sum;
+  33   1            sum=(uint8_t)(fetch_msg+total_msg)%MESSAGE_MAX_NUM;
+  34   1            message[sum].msg=msg;
+  35   1            message[sum].info=info;
+  36   1            total_msg++;
+  37   1      }
+  38          
+  39          /*=========================================================
+  40          * FUNCTION NAME: get_message
+  41          * input :        none
+  42          * Output:        none
+  43          * description:   
+  44          *********************************************************
+  45          author          release             date
+  46          *********************************************************
+  47          richy.lee       first release       2022/04/21
+  48          ===========================================================*/
+  49          BOOL get_message(uint8_t *msg,uint16_t *info){
+  50   1      BOOL  ret=FALSE;  
+  51   1            if(total_msg>0){
+  52   2              
+  53   2              *msg=message[fetch_msg].msg;
+  54   2              *info=message[fetch_msg].info;
+C51 COMPILER V9.59.0.0   SYS_MESSAGE                                                       06/28/2022 11:43:46 PAGE 2   
+
+  55   2               fetch_msg = (fetch_msg + 1) % MESSAGE_MAX_NUM;
+  56   2               total_msg--;
+  57   2                ret=TRUE;
+  58   2            }
+  59   1            return ret; 
+  60   1          
+  61   1      }
+  62          
+C51 COMPILER V9.59.0.0   SYS_MESSAGE                                                       06/28/2022 11:43:46 PAGE 3   
+
+ASSEMBLY LISTING OF GENERATED OBJECT CODE
+
+
+             ; FUNCTION ini_message (BEGIN)
+                                           ; SOURCE LINE # 17
+                                           ; SOURCE LINE # 18
+0000 E4                CLR     A
+0001 F500        R     MOV     fetch_msg,A
+                                           ; SOURCE LINE # 19
+0003 F500        R     MOV     total_msg,A
+                                           ; SOURCE LINE # 20
+0005 22                RET     
+             ; FUNCTION ini_message (END)
+
+             ; FUNCTION _put_message (BEGIN)
+                                           ; SOURCE LINE # 31
+0000 8F00        R     MOV     msg,R7
+;---- Variable 'info' assigned to Register 'R2/R3' ----
+0002 ED                MOV     A,R5
+0003 FB                MOV     R3,A
+0004 EC                MOV     A,R4
+0005 FA                MOV     R2,A
+                                           ; SOURCE LINE # 33
+0006 E500        R     MOV     A,fetch_msg
+0008 2500        R     ADD     A,total_msg
+000A FF                MOV     R7,A
+000B 7E00              MOV     R6,#00H
+000D 7C00              MOV     R4,#00H
+000F 7D0A              MOV     R5,#0AH
+0011 120000      E     LCALL   ?C?UIDIV
+0014 ED                MOV     A,R5
+0015 FF                MOV     R7,A
+;---- Variable 'sum' assigned to Register 'R7' ----
+                                           ; SOURCE LINE # 34
+0016 75F003            MOV     B,#03H
+0019 A4                MUL     AB
+001A 2400        R     ADD     A,#LOW message
+001C F8                MOV     R0,A
+001D A600        R     MOV     @R0,msg
+                                           ; SOURCE LINE # 35
+001F EF                MOV     A,R7
+0020 75F003            MOV     B,#03H
+0023 A4                MUL     AB
+0024 2400        R     ADD     A,#LOW message+01H
+0026 F8                MOV     R0,A
+0027 EA                MOV     A,R2
+0028 F6                MOV     @R0,A
+0029 08                INC     R0
+002A EB                MOV     A,R3
+002B F6                MOV     @R0,A
+                                           ; SOURCE LINE # 36
+002C 0500        R     INC     total_msg
+                                           ; SOURCE LINE # 37
+002E 22                RET     
+             ; FUNCTION _put_message (END)
+
+             ; FUNCTION _get_message (BEGIN)
+                                           ; SOURCE LINE # 49
+;---- Variable 'msg' assigned to Register 'R1/R2/R3' ----
+                                           ; SOURCE LINE # 50
+;---- Variable 'ret' assigned to Register 'R7' ----
+0000 E4                CLR     A
+C51 COMPILER V9.59.0.0   SYS_MESSAGE                                                       06/28/2022 11:43:46 PAGE 4   
+
+0001 FF                MOV     R7,A
+                                           ; SOURCE LINE # 51
+0002 E500        R     MOV     A,total_msg
+0004 D3                SETB    C
+0005 9400              SUBB    A,#00H
+0007 7480              MOV     A,#080H
+0009 9480              SUBB    A,#080H
+000B 403B              JC      ?C0003
+                                           ; SOURCE LINE # 53
+000D E500        R     MOV     A,fetch_msg
+000F 75F003            MOV     B,#03H
+0012 A4                MUL     AB
+0013 2400        R     ADD     A,#LOW message
+0015 F8                MOV     R0,A
+0016 E6                MOV     A,@R0
+0017 120000      E     LCALL   ?C?CSTPTR
+                                           ; SOURCE LINE # 54
+001A E500        R     MOV     A,fetch_msg
+001C 75F003            MOV     B,#03H
+001F A4                MUL     AB
+0020 2400        R     ADD     A,#LOW message+01H
+0022 F8                MOV     R0,A
+0023 E6                MOV     A,@R0
+0024 FF                MOV     R7,A
+0025 08                INC     R0
+0026 E6                MOV     A,@R0
+0027 AB00        R     MOV     R3,info
+0029 AA00        R     MOV     R2,info+01H
+002B A900        R     MOV     R1,info+02H
+002D CF                XCH     A,R7
+002E 8FF0              MOV     B,R7
+0030 120000      E     LCALL   ?C?ISTPTR
+                                           ; SOURCE LINE # 55
+0033 E500        R     MOV     A,fetch_msg
+0035 2401              ADD     A,#01H
+0037 FF                MOV     R7,A
+0038 E4                CLR     A
+0039 33                RLC     A
+003A FE                MOV     R6,A
+003B 7C00              MOV     R4,#00H
+003D 7D0A              MOV     R5,#0AH
+003F 120000      E     LCALL   ?C?UIDIV
+0042 8D00        R     MOV     fetch_msg,R5
+                                           ; SOURCE LINE # 56
+0044 1500        R     DEC     total_msg
+                                           ; SOURCE LINE # 57
+0046 7F01              MOV     R7,#01H
+                                           ; SOURCE LINE # 58
+0048         ?C0003:
+                                           ; SOURCE LINE # 59
+                                           ; SOURCE LINE # 61
+0048 22                RET     
+             ; FUNCTION _get_message (END)
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    126    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     32       7
+C51 COMPILER V9.59.0.0   SYS_MESSAGE                                                       06/28/2022 11:43:46 PAGE 5   
+
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

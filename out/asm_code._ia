@@ -1,0 +1,1 @@
+"src\asm_code.a51" SET (SMALL) DEBUG PRINT(.\lst\asm_code.lst) OBJECT(.\out\asm_code.obj) EP

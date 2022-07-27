@@ -1,0 +1,353 @@
+C51 COMPILER V9.59.0.0   DRV_KEY                                                           06/28/2022 11:43:46 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE DRV_KEY
+OBJECT MODULE PLACED IN .\out\drv_key.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\drv_key.c OPTIMIZE(7,SPEED) BROWSE NOAREGS INCDIR(.\inc) DEFINE(xLDO
+                    -_5V) DEBUG OBJECTEXTEND CODE PRINT(.\lst\drv_key.lst) TABS(2) OBJECT(.\out\drv_key.obj)
+
+line level    source
+
+   1          #include  "MC96FD316.h"
+   2          #include "types.h"
+   3          #include "sys_message.h"
+   4          #include "drv_key.h"
+   5          
+   6          #define   KEY_TICK        (5)
+   7          #define   DEBOUCE_TIME      (40/KEY_TICK)
+   8          #define   LONG_KEY_PRESS_TIME   (1500/KEY_TICK)
+   9          #define   LONG_KEY_PRESS_TIME5S (2000/KEY_TICK)
+  10          #define   KEY_PORT        P1
+  11          #define   KEY_PIN         0X01
+  12          
+  13          
+  14          
+  15          KEY_CTRL_t  keyCtrl;
+  16          uint8_t   drv_key_tick;
+  17          /******************************************************************************************
+  18          *  FUNCTION NAME: drv_key
+  19          *  INPUTS:
+  20          *  OUTPUTS:
+  21          *  VALUE RETURNED:     void.
+  22          *  DESCRIPTION:      
+  23          *  CAUTIONS:    .
+  24          ******************************************************************************************
+  25          * MODIFICATION HISTORY:
+  26          * Date          Person                  Change
+  27          * ---------------------------------------------------------------------------------------
+  28          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  29          ******************************************************************************************/
+  30          void drv_key(void){
+  31   1            if(drv_key_tick<5) return;
+  32   1          drv_key_tick=0;
+  33   1          
+  34   1            switch(keyCtrl.sate){   
+  35   2            case  KEY_SCAN_IDLE:
+  36   2                keyCtrl.debouce=0;
+  37   2              keyCtrl.longKeyPress=0;
+  38   2                keyCtrl.release_time=1;
+  39   2                keyCtrl.sate=KEY_SCAN_CHECK;
+  40   2                break;
+  41   2            
+  42   2            case  KEY_SCAN_CHECK:
+  43   2                
+  44   2                if((KEY_PORT&KEY_PIN)==0){
+  45   3                  keyCtrl.debouce=0;
+  46   3                  keyCtrl.sate=KEY_SCAN_DEBOUCNE;
+  47   3                }
+  48   2                break;
+  49   2                
+  50   2            case  KEY_SCAN_DEBOUCNE:
+  51   2              if((KEY_PORT&KEY_PIN)==0){
+  52   3                  keyCtrl.debouce++;
+  53   3                  if(keyCtrl.debouce>=DEBOUCE_TIME){
+  54   4                    keyCtrl.debouce=0;
+C51 COMPILER V9.59.0.0   DRV_KEY                                                           06/28/2022 11:43:46 PAGE 2   
+
+  55   4                   // put_message(MSG_KEY_PRESS,0);
+  56   4                    keyCtrl.sate=KEY_SCAN_RELEASE;
+  57   4                  }
+  58   3              }else{
+  59   3                keyCtrl.sate=KEY_SCAN_IDLE;
+  60   3              }
+  61   2              break;
+  62   2              
+  63   2              
+  64   2            case  KEY_SCAN_RELEASE:
+  65   2              if((KEY_PORT&KEY_PIN)==0){
+  66   3                                                          
+  67   3                keyCtrl.debouce=0;
+  68   3                if(keyCtrl.release_time>0){
+  69   4                    keyCtrl.release_time++;
+  70   4                }
+  71   3      
+  72   3            if(keyCtrl.release_time>LONG_KEY_PRESS_TIME5S){
+  73   4              keyCtrl.release_time=0;
+  74   4                  put_message(MSG_KEY_TEST_PRESS,0);
+  75   4            } 
+  76   3            else
+  77   3            {
+  78   4      
+  79   4            if(keyCtrl.release_time>LONG_KEY_PRESS_TIME){
+  80   5                    if(keyCtrl.longKeyPress==0){
+  81   6                    keyCtrl.longKeyPress=1 ;
+  82   6                        put_message(MSG_KEY_LONG_PRESS,0);
+  83   6              }
+  84   5                  }
+  85   4            }
+  86   3                
+  87   3              }
+  88   2          else
+  89   2          {
+  90   3              keyCtrl.debouce++;
+  91   3              if(keyCtrl.debouce>=DEBOUCE_TIME){
+  92   4                    keyCtrl.debouce=0;
+  93   4              if((keyCtrl.longKeyPress==1)
+  94   4                ||(keyCtrl.release_time==0))
+  95   4              {
+  96   5                put_message(MSG_KEY_RELEASE,0);
+  97   5              
+  98   5              }else{
+  99   5               put_message(MSG_KEY_PRESS,0);
+ 100   5               
+ 101   5              }
+ 102   4                    keyCtrl.sate=KEY_SCAN_IDLE;
+ 103   4                }
+ 104   3                
+ 105   3              }
+ 106   2              break;
+ 107   2              
+ 108   2            default:
+ 109   2              break;
+ 110   2            
+ 111   2            }
+ 112   1      }
+ 113          
+ 114          
+C51 COMPILER V9.59.0.0   DRV_KEY                                                           06/28/2022 11:43:46 PAGE 3   
+
+ASSEMBLY LISTING OF GENERATED OBJECT CODE
+
+
+             ; FUNCTION drv_key (BEGIN)
+                                           ; SOURCE LINE # 30
+                                           ; SOURCE LINE # 31
+0000 C3                CLR     C
+0001 E500        R     MOV     A,drv_key_tick
+0003 9405              SUBB    A,#05H
+0005 7480              MOV     A,#080H
+0007 9480              SUBB    A,#080H
+0009 5003              JNC     $ + 5H
+000B 020000      R     LJMP    ?C0002
+                                           ; SOURCE LINE # 32
+000E E4                CLR     A
+000F F500        R     MOV     drv_key_tick,A
+                                           ; SOURCE LINE # 34
+0011 E500        R     MOV     A,keyCtrl
+0013 14                DEC     A
+0014 601B              JZ      ?C0005
+0016 14                DEC     A
+0017 6027              JZ      ?C0007
+0019 14                DEC     A
+001A 6045              JZ      ?C0011
+001C 2403              ADD     A,#03H
+001E 6003              JZ      $ + 5H
+0020 020000      R     LJMP    ?C0002
+                                           ; SOURCE LINE # 35
+0023         ?C0004:
+                                           ; SOURCE LINE # 36
+0023 E4                CLR     A
+0024 F500        R     MOV     keyCtrl+01H,A
+                                           ; SOURCE LINE # 37
+0026 F500        R     MOV     keyCtrl+02H,A
+                                           ; SOURCE LINE # 38
+0028 F500        R     MOV     keyCtrl+03H,A
+002A 750001      R     MOV     keyCtrl+04H,#01H
+                                           ; SOURCE LINE # 39
+002D 750001      R     MOV     keyCtrl,#01H
+                                           ; SOURCE LINE # 40
+0030 22                RET     
+                                           ; SOURCE LINE # 42
+0031         ?C0005:
+                                           ; SOURCE LINE # 44
+0031 E588              MOV     A,P1
+0033 5401              ANL     A,#01H
+0035 6003              JZ      $ + 5H
+0037 020000      R     LJMP    ?C0002
+                                           ; SOURCE LINE # 45
+003A F500        R     MOV     keyCtrl+01H,A
+                                           ; SOURCE LINE # 46
+003C 750002      R     MOV     keyCtrl,#02H
+                                           ; SOURCE LINE # 47
+                                           ; SOURCE LINE # 48
+003F 22                RET     
+                                           ; SOURCE LINE # 50
+0040         ?C0007:
+                                           ; SOURCE LINE # 51
+0040 E588              MOV     A,P1
+0042 5401              ANL     A,#01H
+0044 7017              JNZ     ?C0008
+                                           ; SOURCE LINE # 52
+C51 COMPILER V9.59.0.0   DRV_KEY                                                           06/28/2022 11:43:46 PAGE 4   
+
+0046 0500        R     INC     keyCtrl+01H
+                                           ; SOURCE LINE # 53
+0048 C3                CLR     C
+0049 E500        R     MOV     A,keyCtrl+01H
+004B 9408              SUBB    A,#08H
+004D 7480              MOV     A,#080H
+004F 9480              SUBB    A,#080H
+0051 5003              JNC     $ + 5H
+0053 020000      R     LJMP    ?C0002
+                                           ; SOURCE LINE # 54
+0056 E4                CLR     A
+0057 F500        R     MOV     keyCtrl+01H,A
+                                           ; SOURCE LINE # 56
+0059 750003      R     MOV     keyCtrl,#03H
+                                           ; SOURCE LINE # 57
+                                           ; SOURCE LINE # 58
+005C 22                RET     
+005D         ?C0008:
+                                           ; SOURCE LINE # 59
+005D E4                CLR     A
+005E F500        R     MOV     keyCtrl,A
+                                           ; SOURCE LINE # 60
+                                           ; SOURCE LINE # 61
+0060 22                RET     
+                                           ; SOURCE LINE # 64
+0061         ?C0011:
+                                           ; SOURCE LINE # 65
+0061 E588              MOV     A,P1
+0063 5401              ANL     A,#01H
+0065 7047              JNZ     ?C0012
+                                           ; SOURCE LINE # 67
+0067 F500        R     MOV     keyCtrl+01H,A
+                                           ; SOURCE LINE # 68
+0069 D3                SETB    C
+006A E500        R     MOV     A,keyCtrl+04H
+006C 9400              SUBB    A,#00H
+006E E500        R     MOV     A,keyCtrl+03H
+0070 9400              SUBB    A,#00H
+0072 4008              JC      ?C0013
+                                           ; SOURCE LINE # 69
+0074 0500        R     INC     keyCtrl+04H
+0076 E500        R     MOV     A,keyCtrl+04H
+0078 7002              JNZ     ?C0024
+007A 0500        R     INC     keyCtrl+03H
+007C         ?C0024:
+                                           ; SOURCE LINE # 70
+007C         ?C0013:
+                                           ; SOURCE LINE # 72
+007C D3                SETB    C
+007D E500        R     MOV     A,keyCtrl+04H
+007F 9490              SUBB    A,#090H
+0081 E500        R     MOV     A,keyCtrl+03H
+0083 9401              SUBB    A,#01H
+0085 400D              JC      ?C0014
+                                           ; SOURCE LINE # 73
+0087 E4                CLR     A
+0088 F500        R     MOV     keyCtrl+03H,A
+008A F500        R     MOV     keyCtrl+04H,A
+                                           ; SOURCE LINE # 74
+008C FD                MOV     R5,A
+008D FC                MOV     R4,A
+008E 7F02              MOV     R7,#02H
+C51 COMPILER V9.59.0.0   DRV_KEY                                                           06/28/2022 11:43:46 PAGE 5   
+
+0090 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 75
+0093 22                RET     
+0094         ?C0014:
+                                           ; SOURCE LINE # 77
+                                           ; SOURCE LINE # 79
+0094 D3                SETB    C
+0095 E500        R     MOV     A,keyCtrl+04H
+0097 942C              SUBB    A,#02CH
+0099 E500        R     MOV     A,keyCtrl+03H
+009B 9401              SUBB    A,#01H
+009D 403F              JC      ?C0002
+                                           ; SOURCE LINE # 80
+009F E500        R     MOV     A,keyCtrl+02H
+00A1 703B              JNZ     ?C0002
+                                           ; SOURCE LINE # 81
+00A3 750001      R     MOV     keyCtrl+02H,#01H
+                                           ; SOURCE LINE # 82
+00A6 FD                MOV     R5,A
+00A7 FC                MOV     R4,A
+00A8 7F01              MOV     R7,#01H
+00AA 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 83
+                                           ; SOURCE LINE # 84
+                                           ; SOURCE LINE # 85
+                                           ; SOURCE LINE # 87
+00AD 22                RET     
+00AE         ?C0012:
+                                           ; SOURCE LINE # 89
+                                           ; SOURCE LINE # 90
+00AE 0500        R     INC     keyCtrl+01H
+                                           ; SOURCE LINE # 91
+00B0 C3                CLR     C
+00B1 E500        R     MOV     A,keyCtrl+01H
+00B3 9408              SUBB    A,#08H
+00B5 7480              MOV     A,#080H
+00B7 9480              SUBB    A,#080H
+00B9 4023              JC      ?C0002
+                                           ; SOURCE LINE # 92
+00BB E4                CLR     A
+00BC F500        R     MOV     keyCtrl+01H,A
+                                           ; SOURCE LINE # 93
+00BE E500        R     MOV     A,keyCtrl+02H
+00C0 6401              XRL     A,#01H
+00C2 6006              JZ      ?C0021
+00C4 E500        R     MOV     A,keyCtrl+04H
+00C6 4500        R     ORL     A,keyCtrl+03H
+00C8 700A              JNZ     ?C0020
+00CA         ?C0021:
+                                           ; SOURCE LINE # 95
+                                           ; SOURCE LINE # 96
+00CA E4                CLR     A
+00CB FD                MOV     R5,A
+00CC FC                MOV     R4,A
+00CD 7F03              MOV     R7,#03H
+00CF 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 98
+00D2 8007              SJMP    ?C0022
+00D4         ?C0020:
+                                           ; SOURCE LINE # 99
+00D4 E4                CLR     A
+00D5 FD                MOV     R5,A
+C51 COMPILER V9.59.0.0   DRV_KEY                                                           06/28/2022 11:43:46 PAGE 6   
+
+00D6 FC                MOV     R4,A
+00D7 FF                MOV     R7,A
+00D8 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 101
+00DB         ?C0022:
+                                           ; SOURCE LINE # 102
+00DB E4                CLR     A
+00DC F500        R     MOV     keyCtrl,A
+                                           ; SOURCE LINE # 103
+                                           ; SOURCE LINE # 105
+                                           ; SOURCE LINE # 106
+                                           ; SOURCE LINE # 108
+                                           ; SOURCE LINE # 109
+                                           ; SOURCE LINE # 111
+                                           ; SOURCE LINE # 112
+00DE         ?C0002:
+00DE 22                RET     
+             ; FUNCTION drv_key (END)
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    223    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      6    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

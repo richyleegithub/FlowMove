@@ -1,0 +1,431 @@
+C51 COMPILER V9.59.0.0   DRV_ADC                                                           06/28/2022 11:43:47 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE DRV_ADC
+OBJECT MODULE PLACED IN .\out\drv_adc.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\drv_adc.c OPTIMIZE(7,SPEED) BROWSE NOAREGS INCDIR(.\inc) DEFINE(xLDO
+                    -_5V) DEBUG OBJECTEXTEND CODE PRINT(.\lst\drv_adc.lst) TABS(2) OBJECT(.\out\drv_adc.obj)
+
+line level    source
+
+   1          #include  "MC96FD316.h"
+   2          #include  "types.h"
+   3          #include  "func_def.h"
+   4          #include  "drv_adc.h"
+   5          #define   SAMPLE_COUNT    16
+   6          
+   7          uint16_t idata  adc_sum;
+   8          uint16_t idata  adc_battery;
+   9          uint16_t idata  adc_motor;
+  10          uint8_t  idata  adc_state;
+  11          uint8_t  idata  adc_count;
+  12          
+  13          /******************************************************************************************
+  14          *  FUNCTION NAME: drv_adc_ini
+  15          *  INPUTS:
+  16          *  OUTPUTS:
+  17          *  VALUE RETURNED:     void.
+  18          *  DESCRIPTION:      
+  19          *  CAUTIONS:    .
+  20          ******************************************************************************************
+  21          * MODIFICATION HISTORY:
+  22          * Date          Person                  Change
+  23          * ---------------------------------------------------------------------------------------
+  24          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  25          ******************************************************************************************/
+  26          void drv_adc_ini(void){
+  27   1      
+  28   1          adc_count=0;
+  29   1          adc_sum=0;
+  30   1          adc_state=ADC_START;
+  31   1      }
+  32          /******************************************************************************************
+  33          *  FUNCTION NAME: drv_read_adc_battery
+  34          *  INPUTS:
+  35          *  OUTPUTS:
+  36          *  VALUE RETURNED:     void.
+  37          *  DESCRIPTION:      
+  38          *  CAUTIONS:    .
+  39          ******************************************************************************************
+  40          * MODIFICATION HISTORY:
+  41          * Date          Person                  Change
+  42          * ---------------------------------------------------------------------------------------
+  43          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  44          ******************************************************************************************/
+  45          uint16_t drv_read_adc_battery(void){
+  46   1      
+  47   1          return adc_battery;
+  48   1      
+  49   1      }
+  50          /******************************************************************************************
+  51          *  FUNCTION NAME: drv_read_adc_current
+  52          *  INPUTS:
+  53          *  OUTPUTS:
+  54          *  VALUE RETURNED:     void.
+C51 COMPILER V9.59.0.0   DRV_ADC                                                           06/28/2022 11:43:47 PAGE 2   
+
+  55          *  DESCRIPTION:      
+  56          *  CAUTIONS:    .
+  57          ******************************************************************************************
+  58          * MODIFICATION HISTORY:
+  59          * Date          Person                  Change
+  60          * ---------------------------------------------------------------------------------------
+  61          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  62          ******************************************************************************************/
+  63          uint16_t drv_read_adc_currrent(void){
+  64   1      
+  65   1          return adc_motor;
+  66   1      
+  67   1      }
+  68          
+  69          
+  70          /******************************************************************************************
+  71          *  FUNCTION NAME: drv_adc
+  72          *  INPUTS:
+  73          *  OUTPUTS:
+  74          *  VALUE RETURNED:     void.
+  75          *  DESCRIPTION:      
+  76          *  CAUTIONS:    .
+  77          ******************************************************************************************
+  78          * MODIFICATION HISTORY:
+  79          * Date          Person                  Change
+  80          * ---------------------------------------------------------------------------------------
+  81          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  82          ******************************************************************************************/
+  83          void drv_adc(void){
+  84   1      uint16_t adcVal;
+  85   1      
+  86   1        switch(adc_state){
+  87   2        case ADC_START:
+  88   2          ADCCRL = (ADCCRL & 0xf0) | (BATTERY_CHANNEL & 0x0f);  
+  89   2          ADCCRL |= 0x40;   // start ADC
+  90   2          adc_count=0;
+  91   2          adc_sum=0;
+  92   2          adc_state=ADC_SAMPLE_BATTERY;
+  93   2          break;
+  94   2          
+  95   2        case ADC_SAMPLE_BATTERY:
+  96   2          if((ADCCRL & 0x10)){          // wait ADC busy
+  97   3            adcVal = ADCDRH << 8;       // read ADC high
+  98   3            adcVal |= ADCDRL;         // read ADC low
+  99   3            adc_sum+=adcVal;
+ 100   3            adc_count++;
+ 101   3            if(adc_count>=SAMPLE_COUNT){
+ 102   4              adc_battery=(adc_sum>>4);   // div 16
+ 103   4              adc_sum=0;
+ 104   4              adc_count=0;
+ 105   4              ADCCRL = (ADCCRL & 0xf0) | (CURRENT_CHANNEL & 0x0f);
+ 106   4              adc_state=ADC_SAMPLE_MOTOR;
+ 107   4            }
+ 108   3            ADCCRL |= 0x40;   // start ADC 
+ 109   3          }
+ 110   2          
+ 111   2          break;
+ 112   2      
+ 113   2        case ADC_SAMPLE_MOTOR:
+ 114   2        
+ 115   2          if((ADCCRL & 0x10)){          // wait ADC busy
+ 116   3            adcVal = ADCDRH << 8;       // read ADC high
+C51 COMPILER V9.59.0.0   DRV_ADC                                                           06/28/2022 11:43:47 PAGE 3   
+
+ 117   3            adcVal |= ADCDRL;         // read ADC low
+ 118   3            adc_sum+=adcVal;
+ 119   3            adc_count++;
+ 120   3            if(adc_count>=SAMPLE_COUNT){
+ 121   4              adc_motor=(adc_sum>>4);   // div 16
+ 122   4              adc_sum=0;
+ 123   4              adc_count=0;
+ 124   4              ADCCRL = (ADCCRL & 0xf0) | (BATTERY_CHANNEL & 0x0f);
+ 125   4              adc_state=ADC_SAMPLE_BATTERY;
+ 126   4            }
+ 127   3            ADCCRL |= 0x40;   // start ADC 
+ 128   3          }
+ 129   2          break;
+ 130   2        default:
+ 131   2        break;
+ 132   2      
+ 133   2        }
+ 134   1      }
+ 135          
+ 136          
+ 137          
+ 138          
+C51 COMPILER V9.59.0.0   DRV_ADC                                                           06/28/2022 11:43:47 PAGE 4   
+
+ASSEMBLY LISTING OF GENERATED OBJECT CODE
+
+
+             ; FUNCTION drv_adc_ini (BEGIN)
+                                           ; SOURCE LINE # 26
+                                           ; SOURCE LINE # 28
+0000 E4                CLR     A
+0001 7800        R     MOV     R0,#LOW adc_count
+0003 F6                MOV     @R0,A
+                                           ; SOURCE LINE # 29
+0004 7800        R     MOV     R0,#LOW adc_sum
+0006 F6                MOV     @R0,A
+0007 08                INC     R0
+0008 F6                MOV     @R0,A
+                                           ; SOURCE LINE # 30
+0009 7800        R     MOV     R0,#LOW adc_state
+000B F6                MOV     @R0,A
+                                           ; SOURCE LINE # 31
+000C 22                RET     
+             ; FUNCTION drv_adc_ini (END)
+
+             ; FUNCTION drv_read_adc_battery (BEGIN)
+                                           ; SOURCE LINE # 45
+                                           ; SOURCE LINE # 47
+0000 7800        R     MOV     R0,#LOW adc_battery
+0002 E6                MOV     A,@R0
+0003 FE                MOV     R6,A
+0004 08                INC     R0
+0005 E6                MOV     A,@R0
+0006 FF                MOV     R7,A
+                                           ; SOURCE LINE # 49
+0007 22                RET     
+             ; FUNCTION drv_read_adc_battery (END)
+
+             ; FUNCTION drv_read_adc_currrent (BEGIN)
+                                           ; SOURCE LINE # 63
+                                           ; SOURCE LINE # 65
+0000 7800        R     MOV     R0,#LOW adc_motor
+0002 E6                MOV     A,@R0
+0003 FE                MOV     R6,A
+0004 08                INC     R0
+0005 E6                MOV     A,@R0
+0006 FF                MOV     R7,A
+                                           ; SOURCE LINE # 67
+0007 22                RET     
+             ; FUNCTION drv_read_adc_currrent (END)
+
+             ; FUNCTION drv_adc (BEGIN)
+                                           ; SOURCE LINE # 83
+;---- Variable 'adcVal' assigned to Register 'R4/R5' ----
+                                           ; SOURCE LINE # 86
+0000 7800        R     MOV     R0,#LOW adc_state
+0002 E6                MOV     A,@R0
+0003 14                DEC     A
+0004 6023              JZ      ?C0006
+0006 14                DEC     A
+0007 607C              JZ      ?C0009
+0009 2402              ADD     A,#02H
+000B 6003              JZ      $ + 5H
+000D 020000      R     LJMP    ?C0013
+                                           ; SOURCE LINE # 87
+0010         ?C0005:
+C51 COMPILER V9.59.0.0   DRV_ADC                                                           06/28/2022 11:43:47 PAGE 5   
+
+                                           ; SOURCE LINE # 88
+0010 E59C              MOV     A,ADCCRL
+0012 54F0              ANL     A,#0F0H
+0014 4406              ORL     A,#06H
+0016 F59C              MOV     ADCCRL,A
+                                           ; SOURCE LINE # 89
+0018 439C40            ORL     ADCCRL,#040H
+                                           ; SOURCE LINE # 90
+001B E4                CLR     A
+001C 7800        R     MOV     R0,#LOW adc_count
+001E F6                MOV     @R0,A
+                                           ; SOURCE LINE # 91
+001F 7800        R     MOV     R0,#LOW adc_sum
+0021 F6                MOV     @R0,A
+0022 08                INC     R0
+0023 F6                MOV     @R0,A
+                                           ; SOURCE LINE # 92
+0024 7800        R     MOV     R0,#LOW adc_state
+0026 7601              MOV     @R0,#01H
+                                           ; SOURCE LINE # 93
+0028 22                RET     
+                                           ; SOURCE LINE # 95
+0029         ?C0006:
+                                           ; SOURCE LINE # 96
+0029 E59C              MOV     A,ADCCRL
+002B 20E403            JB      ACC.4,$ + 6H
+002E 020000      R     LJMP    ?C0013
+                                           ; SOURCE LINE # 97
+0031 AF9F              MOV     R7,ADCDRH
+0033 EF                MOV     A,R7
+0034 7D00              MOV     R5,#00H
+0036 FC                MOV     R4,A
+                                           ; SOURCE LINE # 98
+0037 AF9E              MOV     R7,ADCDRL
+0039 EF                MOV     A,R7
+003A CD                XCH     A,R5
+003B ED                MOV     A,R5
+003C CD                XCH     A,R5
+003D E4                CLR     A
+003E CC                XCH     A,R4
+003F CC                XCH     A,R4
+                                           ; SOURCE LINE # 99
+0040 7800        R     MOV     R0,#LOW adc_sum+01H
+0042 ED                MOV     A,R5
+0043 26                ADD     A,@R0
+0044 F6                MOV     @R0,A
+0045 18                DEC     R0
+0046 EC                MOV     A,R4
+0047 36                ADDC    A,@R0
+0048 F6                MOV     @R0,A
+                                           ; SOURCE LINE # 100
+0049 7800        R     MOV     R0,#LOW adc_count
+004B 06                INC     @R0
+                                           ; SOURCE LINE # 101
+004C E6                MOV     A,@R0
+004D C3                CLR     C
+004E 9410              SUBB    A,#010H
+0050 7480              MOV     A,#080H
+0052 9480              SUBB    A,#080H
+0054 402B              JC      ?C0008
+                                           ; SOURCE LINE # 102
+0056 7900        R     MOV     R1,#LOW adc_sum
+C51 COMPILER V9.59.0.0   DRV_ADC                                                           06/28/2022 11:43:47 PAGE 6   
+
+0058 E7                MOV     A,@R1
+0059 C4                SWAP    A
+005A F8                MOV     R0,A
+005B 54F0              ANL     A,#0F0H
+005D C8                XCH     A,R0
+005E 68                XRL     A,R0
+005F FF                MOV     R7,A
+0060 09                INC     R1
+0061 E7                MOV     A,@R1
+0062 C4                SWAP    A
+0063 540F              ANL     A,#0FH
+0065 48                ORL     A,R0
+0066 7800        R     MOV     R0,#LOW adc_battery
+0068 CF                XCH     A,R7
+0069 F6                MOV     @R0,A
+006A 08                INC     R0
+006B EF                MOV     A,R7
+006C F6                MOV     @R0,A
+                                           ; SOURCE LINE # 103
+006D E4                CLR     A
+006E 7800        R     MOV     R0,#LOW adc_sum
+0070 F6                MOV     @R0,A
+0071 08                INC     R0
+0072 F6                MOV     @R0,A
+                                           ; SOURCE LINE # 104
+0073 7800        R     MOV     R0,#LOW adc_count
+0075 F6                MOV     @R0,A
+                                           ; SOURCE LINE # 105
+0076 E59C              MOV     A,ADCCRL
+0078 54F0              ANL     A,#0F0H
+007A 4402              ORL     A,#02H
+007C F59C              MOV     ADCCRL,A
+                                           ; SOURCE LINE # 106
+007E 18                DEC     R0
+007F 7602              MOV     @R0,#02H
+                                           ; SOURCE LINE # 107
+0081         ?C0008:
+                                           ; SOURCE LINE # 108
+0081 439C40            ORL     ADCCRL,#040H
+                                           ; SOURCE LINE # 109
+                                           ; SOURCE LINE # 111
+0084 22                RET     
+                                           ; SOURCE LINE # 113
+0085         ?C0009:
+                                           ; SOURCE LINE # 115
+0085 E59C              MOV     A,ADCCRL
+0087 30E452            JNB     ACC.4,?C0013
+                                           ; SOURCE LINE # 116
+008A AF9F              MOV     R7,ADCDRH
+008C EF                MOV     A,R7
+008D 7D00              MOV     R5,#00H
+008F FC                MOV     R4,A
+                                           ; SOURCE LINE # 117
+0090 AF9E              MOV     R7,ADCDRL
+0092 EF                MOV     A,R7
+0093 CD                XCH     A,R5
+0094 ED                MOV     A,R5
+0095 CD                XCH     A,R5
+0096 E4                CLR     A
+0097 CC                XCH     A,R4
+0098 CC                XCH     A,R4
+                                           ; SOURCE LINE # 118
+C51 COMPILER V9.59.0.0   DRV_ADC                                                           06/28/2022 11:43:47 PAGE 7   
+
+0099 7800        R     MOV     R0,#LOW adc_sum+01H
+009B ED                MOV     A,R5
+009C 26                ADD     A,@R0
+009D F6                MOV     @R0,A
+009E 18                DEC     R0
+009F EC                MOV     A,R4
+00A0 36                ADDC    A,@R0
+00A1 F6                MOV     @R0,A
+                                           ; SOURCE LINE # 119
+00A2 7800        R     MOV     R0,#LOW adc_count
+00A4 06                INC     @R0
+                                           ; SOURCE LINE # 120
+00A5 E6                MOV     A,@R0
+00A6 C3                CLR     C
+00A7 9410              SUBB    A,#010H
+00A9 7480              MOV     A,#080H
+00AB 9480              SUBB    A,#080H
+00AD 402A              JC      ?C0011
+                                           ; SOURCE LINE # 121
+00AF 7900        R     MOV     R1,#LOW adc_sum
+00B1 E7                MOV     A,@R1
+00B2 C4                SWAP    A
+00B3 F8                MOV     R0,A
+00B4 54F0              ANL     A,#0F0H
+00B6 C8                XCH     A,R0
+00B7 68                XRL     A,R0
+00B8 FF                MOV     R7,A
+00B9 09                INC     R1
+00BA E7                MOV     A,@R1
+00BB C4                SWAP    A
+00BC 540F              ANL     A,#0FH
+00BE 48                ORL     A,R0
+00BF 7800        R     MOV     R0,#LOW adc_motor
+00C1 CF                XCH     A,R7
+00C2 F6                MOV     @R0,A
+00C3 08                INC     R0
+00C4 EF                MOV     A,R7
+00C5 F6                MOV     @R0,A
+                                           ; SOURCE LINE # 122
+00C6 E4                CLR     A
+00C7 08                INC     R0
+00C8 F6                MOV     @R0,A
+00C9 08                INC     R0
+00CA F6                MOV     @R0,A
+                                           ; SOURCE LINE # 123
+00CB 7800        R     MOV     R0,#LOW adc_count
+00CD F6                MOV     @R0,A
+                                           ; SOURCE LINE # 124
+00CE E59C              MOV     A,ADCCRL
+00D0 54F0              ANL     A,#0F0H
+00D2 4406              ORL     A,#06H
+00D4 F59C              MOV     ADCCRL,A
+                                           ; SOURCE LINE # 125
+00D6 18                DEC     R0
+00D7 7601              MOV     @R0,#01H
+                                           ; SOURCE LINE # 126
+00D9         ?C0011:
+                                           ; SOURCE LINE # 127
+00D9 439C40            ORL     ADCCRL,#040H
+                                           ; SOURCE LINE # 128
+                                           ; SOURCE LINE # 129
+                                           ; SOURCE LINE # 130
+C51 COMPILER V9.59.0.0   DRV_ADC                                                           06/28/2022 11:43:47 PAGE 8   
+
+                                           ; SOURCE LINE # 131
+                                           ; SOURCE LINE # 133
+                                           ; SOURCE LINE # 134
+00DC         ?C0013:
+00DC 22                RET     
+             ; FUNCTION drv_adc (END)
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    250    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =      8    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,2484 @@
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE SYS_MANAGE
+OBJECT MODULE PLACED IN .\out\sys_manage.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\sys_manage.c OPTIMIZE(7,SPEED) BROWSE NOAREGS INCDIR(.\inc) DEFINE(x
+                    -LDO_5V) DEBUG OBJECTEXTEND CODE PRINT(.\lst\sys_manage.lst) TABS(2) OBJECT(.\out\sys_manage.obj)
+
+line level    source
+
+   1          #include "MC96FD316.h"
+   2          #include "types.h"
+   3          #include "sys_message.h"
+   4          #include "sys_manage.h"
+   5          #include "drv_led.h"
+   6          #include "drv_battery.h"
+   7          #include "drv_motor.h"
+   8          #include "drv_timer.h"
+   9          #include "utiles.h"
+  10          #include "drv_uart.h"
+  11          
+  12          #define   BLE_MODULE      1
+  13          
+  14          #define   POWER_CTRL_PIN    P17
+  15          
+  16          #define     TEST_RUNING_MIN   10
+  17          
+  18          
+  19          extern void drv_set_led_b_duty(uint16_t duty);
+  20          extern void drv_set_led_r_duty(uint16_t duty);
+  21          
+  22          
+  23          #define     set_sys_state(m) do{sys_state=m;}while(0)
+  24          //#define   power_off_req(m)  do{ power_off_req=m;} while(0)
+  25          #define   disable_power()   do{POWER_CTRL_PIN=0;}while(0)
+  26          #define   enable_power()    do{POWER_CTRL_PIN=1;}while(0)
+  27          
+  28          uint8_t   sys_state;
+  29          //uint8_t     power_off_req;
+  30          uint8_t   runing_mode;
+  31          uint8_t   mmi_battery_level;
+  32          uint8_t   mmi_battery_charge_disposition;
+  33          uint8_t   knock_flash_count;
+  34          uint8_t   runing_time_count;
+  35          uint8_t   mmi_pressure;
+  36          uint8_t   key_count;
+  37          uint8_t   none_power_count;
+  38          
+  39          BOOL      low_power_led_flash;
+  40          BOOL    none_power_led_flash;
+  41          BOOL        knock_led_flash;
+  42          BOOL    msg_processed;
+  43          BOOL    mmi_charge;
+  44          BOOL    ischarging_full;
+  45          BOOL    ble_connect_flag;
+  46          
+  47          uint8_t   act_msg;
+  48          uint16_t  act_info;
+  49          
+  50          
+  51          
+  52          /*=========================================================
+  53          * FUNCTION NAME: common_ev_Process
+  54          * input :        none
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 2   
+
+  55          * Output:        none
+  56          * description:   
+  57          *********************************************************
+  58          author          release             date
+  59          *********************************************************
+  60          richy.lee       first release       2022/04/21
+  61          ===========================================================*/
+  62          void common_ev_Process(void){
+  63   1      
+  64   1          switch(act_msg){
+  65   2      
+  66   2      
+  67   2         ///////////////////////////////////////////////////////////////    
+  68   2           case MSG_BATTERY_CHANGE_IND:
+  69   2            
+  70   2             mmi_battery_level=act_info&0xff;
+  71   2             drv_led_set_bat_level(mmi_battery_level);
+  72   2             drv_led_set_battery_light(mmi_battery_level);
+  73   2             if(mmi_battery_level==BAT_LOW){
+  74   3               low_power_led_flash=TRUE;
+  75   3               Start_evTimer(TIMEOUT_100MS(5), MSG_LOW_POWER_LED_FLASH_TIMEOUT);
+  76   3             }
+  77   2             else if(mmi_battery_level==BAT_NONE){
+  78   3               drv_motor_stop();
+  79   3               none_power_led_flash=TRUE;
+  80   3                 none_power_count=0;
+  81   3               drv_led_set_battery_light(BAT_LEVEL1);
+  82   3               Stop_evTimer(MSG_LOW_POWER_LED_FLASH_TIMEOUT);
+  83   3               Start_evTimer(TIMEOUT_10MS(50),MSG_POWER_NONE_FLASH_TIMEOUT);
+  84   3      ///        Start_evTimer(TIMEOUT_SECOND(5),MSG_POWER_NONE_TIMEOUT);
+  85   3               set_sys_state(SYS_POWER_NONE);
+  86   3             }
+  87   2             break;
+  88   2      
+  89   2      
+  90   2           case MSG_LOW_POWER_LED_FLASH_TIMEOUT:
+  91   2             if(low_power_led_flash==TRUE){
+  92   3               low_power_led_flash=FALSE;
+  93   3                drv_led_set_battery_light_off();
+  94   3             }else{
+  95   3               low_power_led_flash=TRUE;
+  96   3               drv_led_set_battery_light(BAT_FULL);
+  97   3             }
+  98   2             Start_evTimer(TIMEOUT_100MS(5), MSG_LOW_POWER_LED_FLASH_TIMEOUT);
+  99   2             break;
+ 100   2          /////////////////////////////////////////////////////////////
+ 101   2            
+ 102   2          case MSG_BLE_SET_FLOWTIME:
+ 103   2            if(ble_connect_flag==TRUE){
+ 104   3              drv_motor_change_flow_time(act_info&0x0f);
+ 105   3            }
+ 106   2            break;
+ 107   2          case MSG_BLE_SET_SPEED:
+ 108   2            if(ble_connect_flag==TRUE){
+ 109   3              drv_motor_change_direct_speed(act_info);
+ 110   3            }
+ 111   2            break;
+ 112   2      #if BLE_MODULE      
+ 113   2          case   MSG_BLE_NOTICE_TIMEOUT:
+ 114   2            SendQueueSysRuningParam(runing_mode,mmi_pressure,mmi_battery_level);  
+ 115   2            Start_evTimer(TIMEOUT_SECOND(1), MSG_BLE_NOTICE_TIMEOUT);
+ 116   2            break;
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 3   
+
+ 117   2      #endif
+ 118   2          case  MSG_KEY_LONG_PRESS:
+ 119   2            disable_power();
+ 120   2            drv_motor_stop();
+ 121   2            drv_led_set_mode_light_off();
+ 122   2            drv_led_set_current_light_reset();
+ 123   2            drv_led_set_battery_light_off();
+ 124   2            set_sys_state(SYS_POWER_KEY_REL_WAIT);
+ 125   2            break;
+ 126   2          case MSG_BLE_CONNECT_IND:
+ 127   2            ble_connect_flag=TRUE;
+ 128   2            drv_led_set_mode_connect();
+ 129   2            break;
+ 130   2          case MSG_BLE_DISCONNECT_IND:
+ 131   2            ble_connect_flag=FALSE;
+ 132   2            drv_led_set_mode_light(runing_mode);
+ 133   2            break;
+ 134   2          default:
+ 135   2            break;
+ 136   2          }
+ 137   1      
+ 138   1      }
+ 139          /*=========================================================
+ 140          * FUNCTION NAME: sys_power_up
+ 141          * input :        none
+ 142          * Output:        none
+ 143          * description:   
+ 144          *********************************************************
+ 145          author          release             date
+ 146          *********************************************************
+ 147          richy.lee       first release       2022/04/21
+ 148          ===========================================================*/
+ 149          void  sys_power_up(void){
+ 150   1          switch(act_msg){
+ 151   2      
+ 152   2          //case  MSG_KEY_LONG_PRESS:
+ 153   2          case  MSG_KEY_PRESS:  
+ 154   2            ble_connect_flag=FALSE;
+ 155   2            msg_processed=TRUE; // msg be processed
+ 156   2            runing_time_count=0;
+ 157   2            mmi_pressure=0;
+ 158   2            mmi_battery_level=BAT_FULL;
+ 159   2            enable_power();
+ 160   2            drv_at_mode();
+ 161   2            runing_mode=MODE_SPEED_1600;
+ 162   2            drv_motor_start(runing_mode);
+ 163   2            drv_led_set_mode_light(runing_mode);
+ 164   2            drv_led_set_current_light(LED_CURRENT1);
+ 165   2            drv_led_set_battery_light(mmi_battery_level);
+ 166   2            if(mmi_battery_level==BAT_LOW){
+ 167   3              low_power_led_flash=TRUE;
+ 168   3              Start_evTimer(TIMEOUT_100MS(5), MSG_LOW_POWER_LED_FLASH_TIMEOUT);
+ 169   3            }
+ 170   2      #if BLE_MODULE        
+ 171   2            Start_evTimer(TIMEOUT_SECOND(10), MSG_BLE_NOTICE_TIMEOUT);
+ 172   2      #endif
+ 173   2            Start_evTimer(TIMEOUT_SECOND(60),MSG_RUNING_1MIN_TIMEOUT);
+ 174   2            set_sys_state(SYS_RUNING_STATE);
+ 175   2            break;
+ 176   2      
+ 177   2          case MSG_BATTERY_CHANGE_IND:
+ 178   2             msg_processed=TRUE;
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 4   
+
+ 179   2             mmi_battery_level=act_info&0xff;
+ 180   2             //drv_led_set_bat_level(mmi_battery_level);
+ 181   2             break;  
+ 182   2          case MSG_CHARGE_IND:
+ 183   2             mmi_charge=TRUE;
+ 184   2             mmi_battery_charge_disposition=mmi_battery_level;
+ 185   2             drv_led_set_battery_charge_light(mmi_battery_level,mmi_battery_charge_disposition);
+ 186   2             drv_led_set_charge_onoff(LED_CHARGE_ON);
+ 187   2             drv_led_set_current_light_reset();
+ 188   2             Start_evTimer(TIMEOUT_100MS(10),MSG_CHARGE_FLASH_TIMEOUT);
+ 189   2             set_sys_state(SYS_CHARGIN_STATE);
+ 190   2            break;
+ 191   2             
+ 192   2          default:
+ 193   2            break;
+ 194   2          }
+ 195   1      }
+ 196          
+ 197          /*=========================================================
+ 198          * FUNCTION NAME: sys_stop
+ 199          * input :        none
+ 200          * Output:        none
+ 201          * description:   
+ 202          *********************************************************
+ 203          author          release             date
+ 204          *********************************************************
+ 205          richy.lee       first release       2022/04/21
+ 206          ===========================================================*/
+ 207          
+ 208          void sys_stop(void){
+ 209   1      
+ 210   1      
+ 211   1          switch(act_msg){
+ 212   2          case  MSG_KEY_PRESS:
+ 213   2            msg_processed=TRUE;
+ 214   2            if(ble_connect_flag==FALSE){
+ 215   3              
+ 216   3              runing_mode=MODE_SPEED_1600;
+ 217   3              drv_motor_start(runing_mode);
+ 218   3              drv_led_set_mode_light(runing_mode);
+ 219   3              drv_led_set_current_light(LED_CURRENT1);
+ 220   3      #if BLE_MODULE        
+ 221   3              Start_evTimer(TIMEOUT_SECOND(1), MSG_BLE_NOTICE_TIMEOUT);
+ 222   3      #endif
+ 223   3              set_sys_state(SYS_RUNING_STATE);
+ 224   3            }
+ 225   2            break;  
+ 226   2      
+ 227   2          
+ 228   2          case  MSG_BLE_CMD_START:
+ 229   2            msg_processed=TRUE;
+ 230   2            if(ble_connect_flag){
+ 231   3                
+ 232   3              
+ 233   3              if(act_info==1){
+ 234   4                runing_mode=MODE_SPEED_FLOW;
+ 235   4              }else{
+ 236   4                runing_mode=MODE_SPEED_1600;
+ 237   4              }
+ 238   3              drv_motor_start(runing_mode);
+ 239   3              drv_led_set_mode_light(runing_mode);
+ 240   3              drv_led_set_current_light(LED_CURRENT1);
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 5   
+
+ 241   3      #if BLE_MODULE        
+ 242   3              Start_evTimer(TIMEOUT_SECOND(1), MSG_BLE_NOTICE_TIMEOUT);
+ 243   3      #endif
+ 244   3              set_sys_state(SYS_RUNING_STATE);
+ 245   3              }
+ 246   2            break;
+ 247   2      
+ 248   2          case MSG_POWER_OFF_TIMEOUT: 
+ 249   2            msg_processed=TRUE;
+ 250   2            drv_led_set_mode_light_off();
+ 251   2            drv_led_set_current_light_reset();
+ 252   2            drv_led_set_battery_light_off();
+ 253   2            disable_power();
+ 254   2            set_sys_state(SYS_POWER_UP);
+ 255   2            break;
+ 256   2          case MSG_CHARGE_IND:
+ 257   2            mmi_charge=TRUE;
+ 258   2            Stop_evTimer(MSG_LOW_POWER_LED_FLASH_TIMEOUT);
+ 259   2            mmi_battery_charge_disposition=mmi_battery_level;
+ 260   2            drv_led_set_battery_charge_light(mmi_battery_level,mmi_battery_charge_disposition);
+ 261   2            drv_led_set_charge_onoff(LED_CHARGE_ON);
+ 262   2            drv_led_set_current_light_reset();
+ 263   2            Start_evTimer(TIMEOUT_100MS(10),MSG_CHARGE_FLASH_TIMEOUT);
+ 264   2            set_sys_state(SYS_CHARGIN_STATE);
+ 265   2            break;
+ 266   2          default:
+ 267   2            break;
+ 268   2          }
+ 269   1      }
+ 270          /*=========================================================
+ 271          * FUNCTION NAME: sys_runing
+ 272          * input :        none
+ 273          * Output:        none
+ 274          * description:   
+ 275          *********************************************************
+ 276          author          release             date
+ 277          *********************************************************
+ 278          richy.lee       first release       2022/04/21
+ 279          ===========================================================*/
+ 280          void sys_runing(void){
+ 281   1      
+ 282   1          switch(act_msg){
+ 283   2          case  MSG_KEY_PRESS:
+ 284   2            msg_processed=TRUE;
+ 285   2            if(ble_connect_flag==FALSE){
+ 286   3              runing_mode++;
+ 287   3              if(runing_mode>=MODE_MAX) {
+ 288   4                drv_motor_stop();
+ 289   4                drv_led_set_mode_light_off();
+ 290   4                drv_led_set_battery_light_off();
+ 291   4                drv_led_set_current_light_reset();
+ 292   4                disable_power();
+ 293   4                set_sys_state(SYS_POWER_UP);
+ 294   4              }
+ 295   3              else
+ 296   3              {
+ 297   4                drv_led_set_mode_light(runing_mode);
+ 298   4                drv_motor_change_mode_speed(runing_mode);
+ 299   4              }
+ 300   3            }
+ 301   2            break;
+ 302   2          case MSG_CHARGE_IND:
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 6   
+
+ 303   2            mmi_charge=TRUE;
+ 304   2            drv_motor_stop();
+ 305   2            drv_led_set_mode_light_off();
+ 306   2            Stop_evTimer(MSG_LOW_POWER_LED_FLASH_TIMEOUT);
+ 307   2            mmi_battery_charge_disposition=mmi_battery_level;
+ 308   2            drv_led_set_battery_charge_light(mmi_battery_level,mmi_battery_charge_disposition);
+ 309   2            drv_led_set_charge_onoff(LED_CHARGE_ON);
+ 310   2            drv_led_set_current_light_reset();
+ 311   2            Start_evTimer(TIMEOUT_100MS(10),MSG_CHARGE_FLASH_TIMEOUT);
+ 312   2            set_sys_state(SYS_CHARGIN_STATE);
+ 313   2            break;
+ 314   2            
+ 315   2      
+ 316   2          case MSG_CURRENT_CHANGE_IND:
+ 317   2            msg_processed=TRUE;
+ 318   2            mmi_pressure=act_info;
+ 319   2            drv_led_set_current_light(mmi_pressure);
+ 320   2            break;
+ 321   2      
+ 322   2          case   MSG_MOTOR_KNOCKED: 
+ 323   2            msg_processed=TRUE;
+ 324   2            drv_motor_stop();
+ 325   2            knock_flash_count=0;
+ 326   2            knock_led_flash=TRUE;
+ 327   2            drv_led_set_mode_light_off();
+ 328   2            drv_led_set_battery_light_off();
+ 329   2            drv_led_set_current_light(LED_CURRENT5);
+ 330   2            Start_evTimer(TIMEOUT_100MS(5),MSG_ERROR_FLASH_TIMEOUT);
+ 331   2            set_sys_state(SYS_ERROR_STATE);
+ 332   2            
+ 333   2            break;
+ 334   2          case MSG_BLE_CMD_STOP:
+ 335   2            msg_processed=TRUE;
+ 336   2            if(ble_connect_flag==TRUE){
+ 337   3              drv_motor_stop();
+ 338   3              Start_evTimer(TIMEOUT_SECOND(10),MSG_POWER_OFF_TIMEOUT);
+ 339   3              set_sys_state(SYS_STOP_STATE);
+ 340   3            }
+ 341   2            break;
+ 342   2          case  MSG_RUNING_1MIN_TIMEOUT:
+ 343   2            msg_processed=TRUE;
+ 344   2            runing_time_count++;
+ 345   2            if(runing_time_count>=10){
+ 346   3              drv_motor_stop();
+ 347   3              drv_led_set_mode_light_off();
+ 348   3              drv_led_set_battery_light_off();
+ 349   3              drv_led_set_current_light_reset();
+ 350   3              disable_power();
+ 351   3              set_sys_state(SYS_POWER_UP);
+ 352   3            }else{    
+ 353   3              Start_evTimer(TIMEOUT_SECOND(60), MSG_RUNING_1MIN_TIMEOUT);
+ 354   3            }
+ 355   2            break;
+ 356   2          default:
+ 357   2            break;
+ 358   2          }
+ 359   1      
+ 360   1      }
+ 361          
+ 362          /*=========================================================
+ 363          * FUNCTION NAME: sys_charge
+ 364          * input :        none
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 7   
+
+ 365          * Output:        none
+ 366          * description:   
+ 367          *********************************************************
+ 368          author          release             date
+ 369          *********************************************************
+ 370          richy.lee       first release       2022/04/21
+ 371          ===========================================================*/
+ 372          void sys_charge(void){
+ 373   1          switch(act_msg){
+ 374   2          case MSG_DISCHARGE_IND:
+ 375   2            mmi_charge=TRUE;
+ 376   2        
+ 377   2            drv_led_set_mode_light_off();
+ 378   2            drv_led_set_charge_onoff(LED_CHARGE_OFF);
+ 379   2            drv_led_set_battery_light_off();
+ 380   2            drv_led_set_current_light_reset();
+ 381   2            Stop_evTimer(MSG_CHARGE_FLASH_TIMEOUT);
+ 382   2            disable_power();
+ 383   2            set_sys_state(SYS_POWER_UP);
+ 384   2      
+ 385   2            break;
+ 386   2          case  MSG_CHARGE_FLASH_TIMEOUT:
+ 387   2            msg_processed=TRUE;
+ 388   2            if(mmi_battery_level<BAT_FULL){
+ 389   3              mmi_battery_charge_disposition++;
+ 390   3              if(mmi_battery_charge_disposition>BAT_FULL){
+ 391   4                if(mmi_battery_level<=BAT_LEVEL1){
+ 392   5                  mmi_battery_charge_disposition=BAT_LEVEL1;
+ 393   5                }else{
+ 394   5                  mmi_battery_charge_disposition=mmi_battery_level;
+ 395   5                }
+ 396   4              }
+ 397   3              drv_led_set_battery_charge_light(mmi_battery_level,mmi_battery_charge_disposition);
+ 398   3              Start_evTimer(TIMEOUT_100MS(10),MSG_CHARGE_FLASH_TIMEOUT);
+ 399   3            }
+ 400   2            else
+ 401   2            {
+ 402   3              Stop_evTimer(MSG_CHARGE_FLASH_TIMEOUT);
+ 403   3              drv_led_set_charge_onoff(LED_CHARGE_OFF);
+ 404   3              drv_led_set_current_light(LED_CURRENT1);
+ 405   3              Start_evTimer(TIMEOUT_SECOND(5),MSG_BATTERY_DISPLAY_TIMEOUT);
+ 406   3              set_sys_state(SYS_CHARGE_FULL);
+ 407   3            }
+ 408   2            break;
+ 409   2      
+ 410   2          
+ 411   2      
+ 412   2      
+ 413   2          case MSG_BATTERY_CHANGE_IND:
+ 414   2            msg_processed=TRUE;
+ 415   2            mmi_battery_level=act_info&0xff;
+ 416   2            drv_led_set_bat_level(mmi_battery_level);
+ 417   2            if(mmi_battery_level==BAT_FULL){
+ 418   3              
+ 419   3              Stop_evTimer(MSG_CHARGE_FLASH_TIMEOUT);
+ 420   3              drv_led_set_charge_onoff(LED_CHARGE_OFF);
+ 421   3              drv_led_set_current_light(LED_CURRENT1);
+ 422   3              drv_led_set_battery_light(BAT_FULL);
+ 423   3              Start_evTimer(TIMEOUT_SECOND(5),MSG_BATTERY_DISPLAY_TIMEOUT);
+ 424   3              set_sys_state(SYS_CHARGE_FULL);
+ 425   3            }
+ 426   2            break;
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 8   
+
+ 427   2          case  MSG_KEY_TEST_PRESS:
+ 428   2              msg_processed=TRUE;
+ 429   2              key_count=0;
+ 430   2              ischarging_full=FALSE;
+ 431   2              drv_led_set_test_mode_light();
+ 432   2              Start_evTimer(TIMEOUT_SECOND(3), MSG_DOUBLE_KEY_TIMEOUT);
+ 433   2              set_sys_state(SYS_TEST_WAIT);
+ 434   2            break;
+ 435   2          case  MSG_KEY_LONG_PRESS: 
+ 436   2              msg_processed=TRUE;
+ 437   2      
+ 438   2            break;
+ 439   2          default:
+ 440   2            break;
+ 441   2          }
+ 442   1      }
+ 443          
+ 444          /*=========================================================
+ 445          * FUNCTION NAME: sys_charge_full
+ 446          * input :        none
+ 447          * Output:        none
+ 448          * description:   
+ 449          *********************************************************
+ 450          author          release             date
+ 451          *********************************************************
+ 452          richy.lee       first release       2022/04/21
+ 453          ===========================================================*/
+ 454          
+ 455          void sys_charge_full(void){
+ 456   1      
+ 457   1        switch(act_msg){
+ 458   2        case  MSG_BATTERY_DISPLAY_TIMEOUT:
+ 459   2          msg_processed=TRUE;
+ 460   2          drv_led_set_battery_light_off();
+ 461   2          drv_led_set_current_light_reset();
+ 462   2          break;
+ 463   2      
+ 464   2        case MSG_KEY_PRESS:
+ 465   2          msg_processed=TRUE;
+ 466   2          drv_led_set_current_light(LED_CURRENT1);
+ 467   2          drv_led_set_battery_light(mmi_battery_level);
+ 468   2          Start_evTimer(TIMEOUT_SECOND(5),MSG_BATTERY_DISPLAY_TIMEOUT);
+ 469   2          break;
+ 470   2        case  MSG_KEY_TEST_PRESS:
+ 471   2          msg_processed=TRUE;
+ 472   2          key_count=0;
+ 473   2          ischarging_full=TRUE;
+ 474   2          //drv_led_set_battery_light(BAT_FULL);
+ 475   2          drv_led_set_test_mode_light();
+ 476   2          Start_evTimer(TIMEOUT_SECOND(3), MSG_DOUBLE_KEY_TIMEOUT);
+ 477   2          set_sys_state(SYS_TEST_WAIT);
+ 478   2          
+ 479   2          break;
+ 480   2        case MSG_BATTERY_CHANGE_IND:
+ 481   2          msg_processed=TRUE;
+ 482   2          mmi_battery_level=act_info&0xff;
+ 483   2          drv_led_set_bat_level(mmi_battery_level); 
+ 484   2          break;
+ 485   2        case MSG_DISCHARGE_IND:
+ 486   2          mmi_charge=TRUE;
+ 487   2          drv_led_set_mode_light_off();
+ 488   2          drv_led_set_charge_onoff(LED_CHARGE_OFF);
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 9   
+
+ 489   2          drv_led_set_battery_light_off();
+ 490   2          drv_led_set_current_light_reset();
+ 491   2          Stop_evTimer(MSG_CHARGE_FLASH_TIMEOUT);
+ 492   2          disable_power();
+ 493   2          set_sys_state(SYS_POWER_UP);
+ 494   2          break;
+ 495   2        case  MSG_KEY_LONG_PRESS: 
+ 496   2          msg_processed=TRUE;
+ 497   2          break;
+ 498   2      
+ 499   2        default:
+ 500   2          break;
+ 501   2        }
+ 502   1      
+ 503   1      
+ 504   1      }
+ 505          /*=========================================================
+ 506          * FUNCTION NAME: sys_power_none
+ 507          * input :        none
+ 508          * Output:        none
+ 509          * description:   
+ 510          *********************************************************
+ 511          author          release             date
+ 512          *********************************************************
+ 513          richy.lee       first release       2022/04/21
+ 514          ===========================================================*/
+ 515          
+ 516          void sys_power_none(void){
+ 517   1      
+ 518   1          switch(act_msg){
+ 519   2          case  MSG_POWER_NONE_FLASH_TIMEOUT:
+ 520   2            msg_processed=TRUE;
+ 521   2            if(none_power_led_flash==TRUE){
+ 522   3              none_power_led_flash=FALSE;
+ 523   3              drv_led_set_battery_light_off();
+ 524   3              none_power_count++;
+ 525   3              if(none_power_count>=5){
+ 526   4                drv_led_set_charge_onoff(LED_CHARGE_OFF);
+ 527   4                drv_led_set_battery_light_off();
+ 528   4                drv_led_set_current_light_reset();
+ 529   4                disable_power();
+ 530   4                set_sys_state(SYS_POWER_UP);
+ 531   4              }else{
+ 532   4                Start_evTimer(TIMEOUT_10MS(25),MSG_POWER_NONE_FLASH_TIMEOUT);
+ 533   4              }
+ 534   3            }else{
+ 535   3              none_power_led_flash=TRUE;
+ 536   3              drv_led_set_battery_light(BAT_LEVEL1);
+ 537   3              Start_evTimer(TIMEOUT_10MS(25),MSG_POWER_NONE_FLASH_TIMEOUT);
+ 538   3            }
+ 539   2            break;
+ 540   2      #if 0   
+                  case MSG_POWER_NONE_TIMEOUT:
+                    msg_processed=TRUE;
+                    drv_led_set_mode_light_off();
+                    drv_led_set_charge_onoff(LED_CHARGE_OFF);
+                    drv_led_set_battery_light_off();
+                    drv_led_set_current_light_reset();
+                    disable_power();
+                    set_sys_state(SYS_POWER_UP);
+                    break;
+              #endif
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 10  
+
+ 551   2      
+ 552   2          case MSG_CHARGE_IND:
+ 553   2            mmi_charge=TRUE;
+ 554   2            Stop_evTimer(MSG_POWER_NONE_TIMEOUT);
+ 555   2            Stop_evTimer(MSG_POWER_NONE_FLASH_TIMEOUT);
+ 556   2            mmi_battery_charge_disposition=mmi_battery_level;
+ 557   2            drv_led_set_battery_charge_light(mmi_battery_level,mmi_battery_charge_disposition);
+ 558   2            drv_led_set_charge_onoff(LED_CHARGE_ON);
+ 559   2            drv_led_set_current_light_reset();
+ 560   2            Start_evTimer(TIMEOUT_100MS(10),MSG_CHARGE_FLASH_TIMEOUT);
+ 561   2            set_sys_state(SYS_CHARGIN_STATE);
+ 562   2      
+ 563   2          
+ 564   2            break;
+ 565   2          case MSG_DISCHARGE_IND:
+ 566   2            mmi_charge=FALSE;
+ 567   2            break;
+ 568   2          default:
+ 569   2            break;
+ 570   2            
+ 571   2          }
+ 572   1      
+ 573   1      
+ 574   1      }
+ 575          /*=========================================================
+ 576          * FUNCTION NAME: sys_error
+ 577          * input :        none
+ 578          * Output:        none
+ 579          * description:   
+ 580          *********************************************************
+ 581          author          release             date
+ 582          *********************************************************
+ 583          richy.lee       first release       2022/04/21
+ 584          ===========================================================*/
+ 585          void sys_error(void){
+ 586   1          switch(act_msg){
+ 587   2            case MSG_ERROR_FLASH_TIMEOUT:
+ 588   2            if(knock_led_flash==TRUE){
+ 589   3              knock_led_flash=FALSE;
+ 590   3              drv_set_led_r_duty(0);
+ 591   3              knock_flash_count++;
+ 592   3      
+ 593   3            }else{
+ 594   3              knock_led_flash=TRUE;
+ 595   3              drv_set_led_r_duty(19998);
+ 596   3            }
+ 597   2            if(knock_flash_count>=5){
+ 598   3      
+ 599   3              
+ 600   3              if(mmi_charge){
+ 601   4                mmi_battery_charge_disposition=mmi_battery_level;
+ 602   4                drv_led_set_battery_charge_light(mmi_battery_level,mmi_battery_charge_disposition);
+ 603   4                drv_led_set_charge_onoff(LED_CHARGE_ON);
+ 604   4                drv_led_set_current_light_reset();
+ 605   4                Start_evTimer(TIMEOUT_100MS(5),MSG_CHARGE_FLASH_TIMEOUT);
+ 606   4                set_sys_state(SYS_CHARGIN_STATE);
+ 607   4              }else{
+ 608   4                drv_led_set_current_light_reset();
+ 609   4                drv_led_set_battery_light_off();
+ 610   4                disable_power();
+ 611   4                set_sys_state(SYS_POWER_UP);
+ 612   4              }
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 11  
+
+ 613   3      
+ 614   3            }else{
+ 615   3              Start_evTimer(TIMEOUT_100MS(5),MSG_ERROR_FLASH_TIMEOUT);
+ 616   3            }
+ 617   2            break;
+ 618   2          case MSG_CHARGE_IND:
+ 619   2            mmi_charge=TRUE;
+ 620   2            break;
+ 621   2          case MSG_DISCHARGE_IND:
+ 622   2            mmi_charge=FALSE;
+ 623   2            break;
+ 624   2          default:
+ 625   2          break;
+ 626   2          }
+ 627   1      }
+ 628          
+ 629          
+ 630          
+ 631          /*=========================================================
+ 632          * FUNCTION NAME: sys_test_wait
+ 633          * input :        none
+ 634          * Output:        none
+ 635          * description:   
+ 636          *********************************************************
+ 637          author          release             date
+ 638          *********************************************************
+ 639          richy.lee       first release       2022/04/21
+ 640          ===========================================================*/
+ 641          void sys_test_wait(void){
+ 642   1          switch(act_msg){
+ 643   2          case MSG_KEY_PRESS:
+ 644   2            msg_processed=TRUE;
+ 645   2            key_count++;
+ 646   2            if(key_count>=2){
+ 647   3              Stop_evTimer(MSG_DOUBLE_KEY_TIMEOUT);
+ 648   3              runing_mode=MODE_SPEED_2600;
+ 649   3              drv_motor_start(runing_mode);
+ 650   3              
+ 651   3              drv_led_set_test_mode_light();
+ 652   3              drv_set_led_r_duty(19998);
+ 653   3              drv_set_led_b_duty(19998);
+ 654   3              Start_evTimer(TIMEOUT_SECOND(60), MSG_RUNING_1MIN_TIMEOUT);
+ 655   3              set_sys_state(SYS_TES_STATE);
+ 656   3            }
+ 657   2            break;
+ 658   2          case MSG_DOUBLE_KEY_TIMEOUT:
+ 659   2            msg_processed=TRUE;
+ 660   2            if(ischarging_full==TRUE){
+ 661   3              drv_led_set_battery_light_off();
+ 662   3              set_sys_state(SYS_CHARGE_FULL);
+ 663   3            }
+ 664   2            else
+ 665   2            {
+ 666   3              mmi_battery_charge_disposition=mmi_battery_level;
+ 667   3              drv_led_set_battery_charge_light(mmi_battery_level,mmi_battery_charge_disposition);
+ 668   3              drv_led_set_charge_onoff(LED_CHARGE_ON);
+ 669   3              drv_led_set_current_light_reset();
+ 670   3              Start_evTimer(TIMEOUT_100MS(10),MSG_CHARGE_FLASH_TIMEOUT);
+ 671   3              set_sys_state(SYS_CHARGIN_STATE);
+ 672   3            }
+ 673   2            break;
+ 674   2          default:
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 12  
+
+ 675   2          break;
+ 676   2          }
+ 677   1      
+ 678   1      
+ 679   1      }
+ 680          
+ 681          /*=========================================================
+ 682          * FUNCTION NAME: sys_error
+ 683          * input :        none
+ 684          * Output:        none
+ 685          * description:   
+ 686          *********************************************************
+ 687          author          release             date
+ 688          *********************************************************
+ 689          richy.lee       first release       2022/04/21
+ 690          ===========================================================*/
+ 691          void sys_test(void){
+ 692   1          switch(act_msg){
+ 693   2          case MSG_RUNING_1MIN_TIMEOUT:
+ 694   2            msg_processed=TRUE;
+ 695   2            runing_time_count++;
+ 696   2            if(runing_time_count>=TEST_RUNING_MIN){
+ 697   3              runing_time_count=0;
+ 698   3              drv_motor_stop();
+ 699   3              drv_led_set_current_light_reset();
+ 700   3              drv_led_set_mode_light_off();
+ 701   3              Start_evTimer(TIMEOUT_SECOND(60), MSG_TEST_STOP_TIMEOUT);
+ 702   3            }else{
+ 703   3              Start_evTimer(TIMEOUT_SECOND(60), MSG_RUNING_1MIN_TIMEOUT);
+ 704   3            }
+ 705   2            break;
+ 706   2          case MSG_TEST_STOP_TIMEOUT:
+ 707   2            msg_processed=TRUE;
+ 708   2            runing_mode=MODE_SPEED_2600;
+ 709   2            drv_motor_start(runing_mode);
+ 710   2            drv_led_set_test_mode_light();
+ 711   2            drv_set_led_r_duty(19998);
+ 712   2            drv_set_led_b_duty(19998);
+ 713   2      
+ 714   2            Start_evTimer(TIMEOUT_SECOND(60), MSG_RUNING_1MIN_TIMEOUT);
+ 715   2            break;
+ 716   2          case MSG_BATTERY_CHANGE_IND:
+ 717   2            msg_processed=TRUE;
+ 718   2            break;
+ 719   2      
+ 720   2          
+ 721   2          case MSG_CURRENT_CHANGE_IND:
+ 722   2            msg_processed=TRUE;
+ 723   2            break;
+ 724   2          case MSG_KEY_LONG_PRESS:
+ 725   2            disable_power();
+ 726   2            drv_motor_stop();
+ 727   2            drv_led_set_mode_light_off();
+ 728   2            drv_led_set_current_light_reset();
+ 729   2            drv_led_set_battery_light_off();
+ 730   2            set_sys_state(SYS_POWER_KEY_REL_WAIT);
+ 731   2            break;
+ 732   2          default:
+ 733   2          break;
+ 734   2          }
+ 735   1      
+ 736   1      
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 13  
+
+ 737   1      }
+ 738          /*=========================================================
+ 739          * FUNCTION NAME: sys_powerkey_release_wait
+ 740          * input :        none
+ 741          * Output:        none
+ 742          * description:   
+ 743          *********************************************************
+ 744          author          release             date
+ 745          *********************************************************
+ 746          richy.lee       first release       2022/04/21
+ 747          ===========================================================*/
+ 748          
+ 749          void sys_powerkey_release_wait(void){
+ 750   1      
+ 751   1        switch(act_msg){
+ 752   2        case  MSG_KEY_RELEASE:
+ 753   2          msg_processed=TRUE;
+ 754   2          if(mmi_charge){
+ 755   3            mmi_battery_charge_disposition=mmi_battery_level;
+ 756   3            drv_led_set_battery_charge_light(mmi_battery_level,mmi_battery_charge_disposition);
+ 757   3            drv_led_set_charge_onoff(LED_CHARGE_ON);
+ 758   3            drv_led_set_current_light_reset();
+ 759   3            Start_evTimer(TIMEOUT_100MS(10),MSG_CHARGE_FLASH_TIMEOUT);
+ 760   3            set_sys_state(SYS_CHARGIN_STATE);
+ 761   3          }else{
+ 762   3            set_sys_state(SYS_POWER_UP);
+ 763   3          }
+ 764   2          break;
+ 765   2        case MSG_CHARGE_IND:
+ 766   2          mmi_charge=TRUE;
+ 767   2          break;
+ 768   2        case MSG_DISCHARGE_IND:
+ 769   2          mmi_charge=FALSE;
+ 770   2          break;
+ 771   2        default:
+ 772   2          break;
+ 773   2        }
+ 774   1      }
+ 775          
+ 776          /*=========================================================
+ 777          * FUNCTION NAME: sys_process
+ 778          * input :        none
+ 779          * Output:        none
+ 780          * description:   
+ 781          *********************************************************
+ 782          author          release             date
+ 783          *********************************************************
+ 784          richy.lee       first release       2022/04/21
+ 785          ===========================================================*/
+ 786          void sys_process(void){
+ 787   1      
+ 788   1      
+ 789   1      
+ 790   1          if(get_message(&act_msg,&act_info)==0){
+ 791   2            return;
+ 792   2          }
+ 793   1          msg_processed=0;
+ 794   1          switch(sys_state){
+ 795   2          case SYS_POWER_UP:
+ 796   2            sys_power_up();
+ 797   2            break;
+ 798   2          case SYS_STOP_STATE:
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 14  
+
+ 799   2            sys_stop();
+ 800   2            break;
+ 801   2          case SYS_RUNING_STATE:
+ 802   2            sys_runing();
+ 803   2            break;
+ 804   2          case SYS_CHARGIN_STATE:
+ 805   2            sys_charge();
+ 806   2            break;
+ 807   2      
+ 808   2          case SYS_CHARGE_FULL:
+ 809   2            sys_charge_full();
+ 810   2            break;
+ 811   2          case SYS_POWER_NONE:
+ 812   2            sys_power_none();
+ 813   2            break;
+ 814   2          case SYS_POWER_KEY_REL_WAIT:
+ 815   2            sys_powerkey_release_wait();
+ 816   2            break;
+ 817   2          case SYS_ERROR_STATE:
+ 818   2            sys_error();
+ 819   2            break;
+ 820   2          case SYS_TEST_WAIT:
+ 821   2            sys_test_wait();
+ 822   2            break;
+ 823   2          
+ 824   2          case SYS_TES_STATE:
+ 825   2            sys_test();
+ 826   2            break;
+ 827   2          default:
+ 828   2          break;
+ 829   2          }
+ 830   1      
+ 831   1          if(msg_processed==0){
+ 832   2            common_ev_Process();
+ 833   2          }
+ 834   1          
+ 835   1      }
+ 836          
+ 837          void sys_process_ini(void){
+ 838   1      
+ 839   1          sys_state=SYS_POWER_UP;
+ 840   1      
+ 841   1      }
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 15  
+
+ASSEMBLY LISTING OF GENERATED OBJECT CODE
+
+
+             ; FUNCTION common_ev_Process (BEGIN)
+                                           ; SOURCE LINE # 62
+                                           ; SOURCE LINE # 64
+0000 E500        R     MOV     A,act_msg
+0002 14                DEC     A
+0003 7003              JNZ     $ + 5H
+0005 020000      R     LJMP    ?C0020
+0008 24F8              ADD     A,#0F8H
+000A 7003              JNZ     $ + 5H
+000C 020000      R     LJMP    ?C0024
+000F 14                DEC     A
+0010 7003              JNZ     $ + 5H
+0012 020000      R     LJMP    ?C0025
+0015 24FD              ADD     A,#0FDH
+0017 7003              JNZ     $ + 5H
+0019 020000      R     LJMP    ?C0014
+001C 14                DEC     A
+001D 6076              JZ      ?C0012
+001F 14                DEC     A
+0020 7003              JNZ     $ + 5H
+0022 020000      R     LJMP    ?C0016
+0025 14                DEC     A
+0026 604E              JZ      ?C0009
+0028 2408              ADD     A,#08H
+002A 6003              JZ      $ + 5H
+002C 020000      R     LJMP    ?C0027
+                                           ; SOURCE LINE # 68
+002F         ?C0002:
+                                           ; SOURCE LINE # 70
+002F E500        R     MOV     A,act_info+01H
+0031 F500        R     MOV     mmi_battery_level,A
+                                           ; SOURCE LINE # 71
+0033 AF00        R     MOV     R7,mmi_battery_level
+0035 120000      E     LCALL   _drv_led_set_bat_level
+                                           ; SOURCE LINE # 72
+0038 AF00        R     MOV     R7,mmi_battery_level
+003A 120000      E     LCALL   _drv_led_set_battery_light
+                                           ; SOURCE LINE # 73
+003D E500        R     MOV     A,mmi_battery_level
+003F 6401              XRL     A,#01H
+0041 700C              JNZ     ?C0003
+                                           ; SOURCE LINE # 74
+0043 750001      R     MOV     low_power_led_flash,#01H
+                                           ; SOURCE LINE # 75
+0046 7D10              MOV     R5,#010H
+0048 7F32              MOV     R7,#032H
+004A FE                MOV     R6,A
+004B 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 76
+004E 22                RET     
+004F         ?C0003:
+                                           ; SOURCE LINE # 77
+004F E500        R     MOV     A,mmi_battery_level
+0051 6003              JZ      $ + 5H
+0053 020000      R     LJMP    ?C0027
+                                           ; SOURCE LINE # 78
+0056 120000      E     LCALL   drv_motor_stop
+                                           ; SOURCE LINE # 79
+0059 750001      R     MOV     none_power_led_flash,#01H
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 16  
+
+                                           ; SOURCE LINE # 80
+005C E4                CLR     A
+005D F500        R     MOV     none_power_count,A
+                                           ; SOURCE LINE # 81
+005F 7F02              MOV     R7,#02H
+0061 120000      E     LCALL   _drv_led_set_battery_light
+                                           ; SOURCE LINE # 82
+0064 7F10              MOV     R7,#010H
+0066 120000      E     LCALL   _Stop_evTimer
+                                           ; SOURCE LINE # 83
+0069 7D11              MOV     R5,#011H
+006B 7F32              MOV     R7,#032H
+006D 7E00              MOV     R6,#00H
+006F 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 85
+0072 750005      R     MOV     sys_state,#05H
+                                           ; SOURCE LINE # 86
+                                           ; SOURCE LINE # 87
+0075 22                RET     
+                                           ; SOURCE LINE # 90
+0076         ?C0009:
+                                           ; SOURCE LINE # 91
+0076 E500        R     MOV     A,low_power_led_flash
+0078 6401              XRL     A,#01H
+007A 7007              JNZ     ?C0010
+                                           ; SOURCE LINE # 92
+007C F500        R     MOV     low_power_led_flash,A
+                                           ; SOURCE LINE # 93
+007E 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 94
+0081 8008              SJMP    ?C0011
+0083         ?C0010:
+                                           ; SOURCE LINE # 95
+0083 750001      R     MOV     low_power_led_flash,#01H
+                                           ; SOURCE LINE # 96
+0086 7F07              MOV     R7,#07H
+0088 120000      E     LCALL   _drv_led_set_battery_light
+                                           ; SOURCE LINE # 97
+008B         ?C0011:
+                                           ; SOURCE LINE # 98
+008B 7D10              MOV     R5,#010H
+008D 7F32              MOV     R7,#032H
+008F 7E00              MOV     R6,#00H
+0091 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 99
+0094 22                RET     
+                                           ; SOURCE LINE # 102
+0095         ?C0012:
+                                           ; SOURCE LINE # 103
+0095 E500        R     MOV     A,ble_connect_flag
+0097 6401              XRL     A,#01H
+0099 704B              JNZ     ?C0027
+                                           ; SOURCE LINE # 104
+009B E500        R     MOV     A,act_info+01H
+009D 540F              ANL     A,#0FH
+009F FF                MOV     R7,A
+00A0 120000      E     LCALL   _drv_motor_change_flow_time
+                                           ; SOURCE LINE # 105
+                                           ; SOURCE LINE # 106
+00A3 22                RET     
+                                           ; SOURCE LINE # 107
+00A4         ?C0014:
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 17  
+
+                                           ; SOURCE LINE # 108
+00A4 E500        R     MOV     A,ble_connect_flag
+00A6 6401              XRL     A,#01H
+00A8 703C              JNZ     ?C0027
+                                           ; SOURCE LINE # 109
+00AA AF00        R     MOV     R7,act_info+01H
+00AC AE00        R     MOV     R6,act_info
+00AE 120000      E     LCALL   _drv_motor_change_direct_speed
+                                           ; SOURCE LINE # 110
+                                           ; SOURCE LINE # 111
+00B1 22                RET     
+                                           ; SOURCE LINE # 113
+00B2         ?C0016:
+                                           ; SOURCE LINE # 114
+00B2 AB00        R     MOV     R3,mmi_battery_level
+00B4 AD00        R     MOV     R5,mmi_pressure
+00B6 AF00        R     MOV     R7,runing_mode
+00B8 120000      E     LCALL   _SendQueueSysRuningParam
+                                           ; SOURCE LINE # 115
+00BB 7D0F              MOV     R5,#0FH
+00BD 7F64              MOV     R7,#064H
+00BF 7E00              MOV     R6,#00H
+00C1 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 116
+00C4 22                RET     
+                                           ; SOURCE LINE # 118
+00C5         ?C0020:
+                                           ; SOURCE LINE # 119
+00C5 C28F              CLR     P17
+                                           ; SOURCE LINE # 120
+00C7 120000      E     LCALL   drv_motor_stop
+                                           ; SOURCE LINE # 121
+00CA 120000      E     LCALL   drv_led_set_mode_light_off
+                                           ; SOURCE LINE # 122
+00CD 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 123
+00D0 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 124
+00D3 750006      R     MOV     sys_state,#06H
+                                           ; SOURCE LINE # 125
+00D6 22                RET     
+                                           ; SOURCE LINE # 126
+00D7         ?C0024:
+                                           ; SOURCE LINE # 127
+00D7 750001      R     MOV     ble_connect_flag,#01H
+                                           ; SOURCE LINE # 128
+00DA 120000      E     LCALL   drv_led_set_mode_connect
+                                           ; SOURCE LINE # 129
+00DD 22                RET     
+                                           ; SOURCE LINE # 130
+00DE         ?C0025:
+                                           ; SOURCE LINE # 131
+00DE E4                CLR     A
+00DF F500        R     MOV     ble_connect_flag,A
+                                           ; SOURCE LINE # 132
+00E1 AF00        R     MOV     R7,runing_mode
+00E3 120000      E     LCALL   _drv_led_set_mode_light
+                                           ; SOURCE LINE # 133
+                                           ; SOURCE LINE # 134
+                                           ; SOURCE LINE # 135
+                                           ; SOURCE LINE # 136
+                                           ; SOURCE LINE # 138
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 18  
+
+00E6         ?C0027:
+00E6 22                RET     
+             ; FUNCTION common_ev_Process (END)
+
+             ; FUNCTION sys_power_up (BEGIN)
+                                           ; SOURCE LINE # 149
+                                           ; SOURCE LINE # 150
+0000 E500        R     MOV     A,act_msg
+0002 24FB              ADD     A,#0FBH
+0004 6060              JZ      ?C0038
+0006 24FD              ADD     A,#0FDH
+0008 6054              JZ      ?C0037
+000A 2408              ADD     A,#08H
+000C 7079              JNZ     ?C0043
+                                           ; SOURCE LINE # 153
+000E         ?C0029:
+                                           ; SOURCE LINE # 154
+000E E4                CLR     A
+000F F500        R     MOV     ble_connect_flag,A
+                                           ; SOURCE LINE # 155
+0011 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 156
+0014 F500        R     MOV     runing_time_count,A
+                                           ; SOURCE LINE # 157
+0016 F500        R     MOV     mmi_pressure,A
+                                           ; SOURCE LINE # 158
+0018 750007      R     MOV     mmi_battery_level,#07H
+                                           ; SOURCE LINE # 159
+001B D28F              SETB    P17
+                                           ; SOURCE LINE # 160
+001D 120000      E     LCALL   drv_at_mode
+                                           ; SOURCE LINE # 161
+0020 E4                CLR     A
+0021 F500        R     MOV     runing_mode,A
+                                           ; SOURCE LINE # 162
+0023 AF00        R     MOV     R7,runing_mode
+0025 120000      E     LCALL   _drv_motor_start
+                                           ; SOURCE LINE # 163
+0028 AF00        R     MOV     R7,runing_mode
+002A 120000      E     LCALL   _drv_led_set_mode_light
+                                           ; SOURCE LINE # 164
+002D E4                CLR     A
+002E FF                MOV     R7,A
+002F 120000      E     LCALL   _drv_led_set_current_light
+                                           ; SOURCE LINE # 165
+0032 AF00        R     MOV     R7,mmi_battery_level
+0034 120000      E     LCALL   _drv_led_set_battery_light
+                                           ; SOURCE LINE # 166
+0037 E500        R     MOV     A,mmi_battery_level
+0039 6401              XRL     A,#01H
+003B 700B              JNZ     ?C0033
+                                           ; SOURCE LINE # 167
+003D 750001      R     MOV     low_power_led_flash,#01H
+                                           ; SOURCE LINE # 168
+0040 7D10              MOV     R5,#010H
+0042 7F32              MOV     R7,#032H
+0044 FE                MOV     R6,A
+0045 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 169
+0048         ?C0033:
+                                           ; SOURCE LINE # 171
+0048 7D0F              MOV     R5,#0FH
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 19  
+
+004A 7FE8              MOV     R7,#0E8H
+004C 7E03              MOV     R6,#03H
+004E 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 173
+0051 7D19              MOV     R5,#019H
+0053 7F70              MOV     R7,#070H
+0055 7E17              MOV     R6,#017H
+0057 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 174
+005A 750002      R     MOV     sys_state,#02H
+                                           ; SOURCE LINE # 175
+005D 22                RET     
+                                           ; SOURCE LINE # 177
+005E         ?C0037:
+                                           ; SOURCE LINE # 178
+005E 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 179
+0061 E500        R     MOV     A,act_info+01H
+0063 F500        R     MOV     mmi_battery_level,A
+                                           ; SOURCE LINE # 181
+0065 22                RET     
+                                           ; SOURCE LINE # 182
+0066         ?C0038:
+                                           ; SOURCE LINE # 183
+0066 750001      R     MOV     mmi_charge,#01H
+                                           ; SOURCE LINE # 184
+0069 850000      R     MOV     mmi_battery_charge_disposition,mmi_battery_level
+                                           ; SOURCE LINE # 185
+006C AD00        R     MOV     R5,mmi_battery_charge_disposition
+006E AF00        R     MOV     R7,mmi_battery_level
+0070 120000      E     LCALL   _drv_led_set_battery_charge_light
+                                           ; SOURCE LINE # 186
+0073 7F01              MOV     R7,#01H
+0075 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 187
+0078 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 188
+007B 7D13              MOV     R5,#013H
+007D 7F64              MOV     R7,#064H
+007F 7E00              MOV     R6,#00H
+0081 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 189
+0084 750003      R     MOV     sys_state,#03H
+                                           ; SOURCE LINE # 190
+                                           ; SOURCE LINE # 192
+                                           ; SOURCE LINE # 193
+                                           ; SOURCE LINE # 194
+                                           ; SOURCE LINE # 195
+0087         ?C0043:
+0087 22                RET     
+             ; FUNCTION sys_power_up (END)
+
+             ; FUNCTION sys_stop (BEGIN)
+                                           ; SOURCE LINE # 208
+                                           ; SOURCE LINE # 211
+0000 E500        R     MOV     A,act_msg
+0002 24FB              ADD     A,#0FBH
+0004 607C              JZ      ?C0064
+0006 24FA              ADD     A,#0FAH
+0008 6033              JZ      ?C0050
+000A 24F6              ADD     A,#0F6H
+000C 6062              JZ      ?C0057
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 20  
+
+000E 2415              ADD     A,#015H
+0010 6003              JZ      $ + 5H
+0012 020000      R     LJMP    ?C0069
+                                           ; SOURCE LINE # 212
+0015         ?C0045:
+                                           ; SOURCE LINE # 213
+0015 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 214
+0018 E500        R     MOV     A,ble_connect_flag
+001A 6003              JZ      $ + 5H
+001C 020000      R     LJMP    ?C0069
+                                           ; SOURCE LINE # 216
+001F F500        R     MOV     runing_mode,A
+                                           ; SOURCE LINE # 217
+0021 AF00        R     MOV     R7,runing_mode
+0023 120000      E     LCALL   _drv_motor_start
+                                           ; SOURCE LINE # 218
+0026 AF00        R     MOV     R7,runing_mode
+0028 120000      E     LCALL   _drv_led_set_mode_light
+                                           ; SOURCE LINE # 219
+002B E4                CLR     A
+002C FF                MOV     R7,A
+002D 120000      E     LCALL   _drv_led_set_current_light
+                                           ; SOURCE LINE # 221
+0030 7D0F              MOV     R5,#0FH
+0032 7F64              MOV     R7,#064H
+0034 7E00              MOV     R6,#00H
+0036 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 223
+0039 750002      R     MOV     sys_state,#02H
+                                           ; SOURCE LINE # 224
+                                           ; SOURCE LINE # 225
+003C 22                RET     
+                                           ; SOURCE LINE # 228
+003D         ?C0050:
+                                           ; SOURCE LINE # 229
+003D 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 230
+0040 E500        R     MOV     A,ble_connect_flag
+0042 6064              JZ      ?C0069
+                                           ; SOURCE LINE # 233
+0044 E500        R     MOV     A,act_info+01H
+0046 6401              XRL     A,#01H
+0048 4500        R     ORL     A,act_info
+004A 7005              JNZ     ?C0052
+                                           ; SOURCE LINE # 234
+004C 750003      R     MOV     runing_mode,#03H
+                                           ; SOURCE LINE # 235
+004F 8003              SJMP    ?C0053
+0051         ?C0052:
+                                           ; SOURCE LINE # 236
+0051 E4                CLR     A
+0052 F500        R     MOV     runing_mode,A
+                                           ; SOURCE LINE # 237
+0054         ?C0053:
+                                           ; SOURCE LINE # 238
+0054 AF00        R     MOV     R7,runing_mode
+0056 120000      E     LCALL   _drv_motor_start
+                                           ; SOURCE LINE # 239
+0059 AF00        R     MOV     R7,runing_mode
+005B 120000      E     LCALL   _drv_led_set_mode_light
+                                           ; SOURCE LINE # 240
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 21  
+
+005E E4                CLR     A
+005F FF                MOV     R7,A
+0060 120000      E     LCALL   _drv_led_set_current_light
+                                           ; SOURCE LINE # 242
+0063 7D0F              MOV     R5,#0FH
+0065 7F64              MOV     R7,#064H
+0067 7E00              MOV     R6,#00H
+0069 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 244
+006C 750002      R     MOV     sys_state,#02H
+                                           ; SOURCE LINE # 245
+                                           ; SOURCE LINE # 246
+006F 22                RET     
+                                           ; SOURCE LINE # 248
+0070         ?C0057:
+                                           ; SOURCE LINE # 249
+0070 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 250
+0073 120000      E     LCALL   drv_led_set_mode_light_off
+                                           ; SOURCE LINE # 251
+0076 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 252
+0079 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 253
+007C C28F              CLR     P17
+                                           ; SOURCE LINE # 254
+007E E4                CLR     A
+007F F500        R     MOV     sys_state,A
+                                           ; SOURCE LINE # 255
+0081 22                RET     
+                                           ; SOURCE LINE # 256
+0082         ?C0064:
+                                           ; SOURCE LINE # 257
+0082 750001      R     MOV     mmi_charge,#01H
+                                           ; SOURCE LINE # 258
+0085 7F10              MOV     R7,#010H
+0087 120000      E     LCALL   _Stop_evTimer
+                                           ; SOURCE LINE # 259
+008A 850000      R     MOV     mmi_battery_charge_disposition,mmi_battery_level
+                                           ; SOURCE LINE # 260
+008D AD00        R     MOV     R5,mmi_battery_charge_disposition
+008F AF00        R     MOV     R7,mmi_battery_level
+0091 120000      E     LCALL   _drv_led_set_battery_charge_light
+                                           ; SOURCE LINE # 261
+0094 7F01              MOV     R7,#01H
+0096 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 262
+0099 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 263
+009C 7D13              MOV     R5,#013H
+009E 7F64              MOV     R7,#064H
+00A0 7E00              MOV     R6,#00H
+00A2 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 264
+00A5 750003      R     MOV     sys_state,#03H
+                                           ; SOURCE LINE # 265
+                                           ; SOURCE LINE # 266
+                                           ; SOURCE LINE # 267
+                                           ; SOURCE LINE # 268
+                                           ; SOURCE LINE # 269
+00A8         ?C0069:
+00A8 22                RET     
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 22  
+
+             ; FUNCTION sys_stop (END)
+
+             ; FUNCTION sys_runing (BEGIN)
+                                           ; SOURCE LINE # 280
+                                           ; SOURCE LINE # 282
+0000 E500        R     MOV     A,act_msg
+0002 24FC              ADD     A,#0FCH
+0004 7003              JNZ     $ + 5H
+0006 020000      R     LJMP    ?C0085
+0009 14                DEC     A
+000A 6050              JZ      ?C0081
+000C 24FE              ADD     A,#0FEH
+000E 7003              JNZ     $ + 5H
+0010 020000      R     LJMP    ?C0086
+0013 24FB              ADD     A,#0FBH
+0015 7003              JNZ     $ + 5H
+0017 020000      R     LJMP    ?C0090
+001A 24F3              ADD     A,#0F3H
+001C 7003              JNZ     $ + 5H
+001E 020000      R     LJMP    ?C0095
+0021 2419              ADD     A,#019H
+0023 6003              JZ      $ + 5H
+0025 020000      R     LJMP    ?C0105
+                                           ; SOURCE LINE # 283
+0028         ?C0071:
+                                           ; SOURCE LINE # 284
+0028 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 285
+002B E500        R     MOV     A,ble_connect_flag
+002D 6003              JZ      $ + 5H
+002F 020000      R     LJMP    ?C0105
+                                           ; SOURCE LINE # 286
+0032 0500        R     INC     runing_mode
+                                           ; SOURCE LINE # 287
+0034 C3                CLR     C
+0035 E500        R     MOV     A,runing_mode
+0037 9404              SUBB    A,#04H
+0039 7480              MOV     A,#080H
+003B 9480              SUBB    A,#080H
+003D 4012              JC      ?C0073
+                                           ; SOURCE LINE # 288
+003F 120000      E     LCALL   drv_motor_stop
+                                           ; SOURCE LINE # 289
+0042 120000      E     LCALL   drv_led_set_mode_light_off
+                                           ; SOURCE LINE # 290
+0045 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 291
+0048 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 292
+004B C28F              CLR     P17
+                                           ; SOURCE LINE # 293
+004D E4                CLR     A
+004E F500        R     MOV     sys_state,A
+                                           ; SOURCE LINE # 294
+0050 22                RET     
+0051         ?C0073:
+                                           ; SOURCE LINE # 296
+                                           ; SOURCE LINE # 297
+0051 AF00        R     MOV     R7,runing_mode
+0053 120000      E     LCALL   _drv_led_set_mode_light
+                                           ; SOURCE LINE # 298
+0056 AF00        R     MOV     R7,runing_mode
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 23  
+
+0058 120000      E     LCALL   _drv_motor_change_mode_speed
+                                           ; SOURCE LINE # 299
+                                           ; SOURCE LINE # 300
+                                           ; SOURCE LINE # 301
+005B 22                RET     
+                                           ; SOURCE LINE # 302
+005C         ?C0081:
+                                           ; SOURCE LINE # 303
+005C 750001      R     MOV     mmi_charge,#01H
+                                           ; SOURCE LINE # 304
+005F 120000      E     LCALL   drv_motor_stop
+                                           ; SOURCE LINE # 305
+0062 120000      E     LCALL   drv_led_set_mode_light_off
+                                           ; SOURCE LINE # 306
+0065 7F10              MOV     R7,#010H
+0067 120000      E     LCALL   _Stop_evTimer
+                                           ; SOURCE LINE # 307
+006A 850000      R     MOV     mmi_battery_charge_disposition,mmi_battery_level
+                                           ; SOURCE LINE # 308
+006D AD00        R     MOV     R5,mmi_battery_charge_disposition
+006F AF00        R     MOV     R7,mmi_battery_level
+0071 120000      E     LCALL   _drv_led_set_battery_charge_light
+                                           ; SOURCE LINE # 309
+0074 7F01              MOV     R7,#01H
+0076 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 310
+0079 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 311
+007C 7D13              MOV     R5,#013H
+007E 7F64              MOV     R7,#064H
+0080 7E00              MOV     R6,#00H
+0082 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 312
+0085 750003      R     MOV     sys_state,#03H
+                                           ; SOURCE LINE # 313
+0088 22                RET     
+                                           ; SOURCE LINE # 316
+0089         ?C0085:
+                                           ; SOURCE LINE # 317
+0089 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 318
+008C 850000      R     MOV     mmi_pressure,act_info+01H
+                                           ; SOURCE LINE # 319
+008F AF00        R     MOV     R7,mmi_pressure
+0091 120000      E     LCALL   _drv_led_set_current_light
+                                           ; SOURCE LINE # 320
+0094 22                RET     
+                                           ; SOURCE LINE # 322
+0095         ?C0086:
+                                           ; SOURCE LINE # 323
+0095 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 324
+0098 120000      E     LCALL   drv_motor_stop
+                                           ; SOURCE LINE # 325
+009B E4                CLR     A
+009C F500        R     MOV     knock_flash_count,A
+                                           ; SOURCE LINE # 326
+009E 750001      R     MOV     knock_led_flash,#01H
+                                           ; SOURCE LINE # 327
+00A1 120000      E     LCALL   drv_led_set_mode_light_off
+                                           ; SOURCE LINE # 328
+00A4 120000      E     LCALL   drv_led_set_battery_light_off
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 24  
+
+                                           ; SOURCE LINE # 329
+00A7 7F04              MOV     R7,#04H
+00A9 120000      E     LCALL   _drv_led_set_current_light
+                                           ; SOURCE LINE # 330
+00AC 7D17              MOV     R5,#017H
+00AE 7F32              MOV     R7,#032H
+00B0 7E00              MOV     R6,#00H
+00B2 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 331
+00B5 750007      R     MOV     sys_state,#07H
+                                           ; SOURCE LINE # 333
+00B8 22                RET     
+                                           ; SOURCE LINE # 334
+00B9         ?C0090:
+                                           ; SOURCE LINE # 335
+00B9 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 336
+00BC E500        R     MOV     A,ble_connect_flag
+00BE 6401              XRL     A,#01H
+00C0 703B              JNZ     ?C0105
+                                           ; SOURCE LINE # 337
+00C2 120000      E     LCALL   drv_motor_stop
+                                           ; SOURCE LINE # 338
+00C5 7D15              MOV     R5,#015H
+00C7 7FE8              MOV     R7,#0E8H
+00C9 7E03              MOV     R6,#03H
+00CB 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 339
+00CE 750001      R     MOV     sys_state,#01H
+                                           ; SOURCE LINE # 340
+                                           ; SOURCE LINE # 341
+00D1 22                RET     
+                                           ; SOURCE LINE # 342
+00D2         ?C0095:
+                                           ; SOURCE LINE # 343
+00D2 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 344
+00D5 0500        R     INC     runing_time_count
+                                           ; SOURCE LINE # 345
+00D7 C3                CLR     C
+00D8 E500        R     MOV     A,runing_time_count
+00DA 940A              SUBB    A,#0AH
+00DC 7480              MOV     A,#080H
+00DE 9480              SUBB    A,#080H
+00E0 4012              JC      ?C0096
+                                           ; SOURCE LINE # 346
+00E2 120000      E     LCALL   drv_motor_stop
+                                           ; SOURCE LINE # 347
+00E5 120000      E     LCALL   drv_led_set_mode_light_off
+                                           ; SOURCE LINE # 348
+00E8 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 349
+00EB 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 350
+00EE C28F              CLR     P17
+                                           ; SOURCE LINE # 351
+00F0 E4                CLR     A
+00F1 F500        R     MOV     sys_state,A
+                                           ; SOURCE LINE # 352
+00F3 22                RET     
+00F4         ?C0096:
+                                           ; SOURCE LINE # 353
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 25  
+
+00F4 7D19              MOV     R5,#019H
+00F6 7F70              MOV     R7,#070H
+00F8 7E17              MOV     R6,#017H
+00FA 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 354
+                                           ; SOURCE LINE # 355
+                                           ; SOURCE LINE # 356
+                                           ; SOURCE LINE # 357
+                                           ; SOURCE LINE # 358
+                                           ; SOURCE LINE # 360
+00FD         ?C0105:
+00FD 22                RET     
+             ; FUNCTION sys_runing (END)
+
+             ; FUNCTION sys_charge (BEGIN)
+                                           ; SOURCE LINE # 372
+                                           ; SOURCE LINE # 373
+0000 E500        R     MOV     A,act_msg
+0002 14                DEC     A
+0003 7003              JNZ     $ + 5H
+0005 020000      R     LJMP    ?C0132
+0008 14                DEC     A
+0009 7003              JNZ     $ + 5H
+000B 020000      R     LJMP    ?C0128
+000E 24FA              ADD     A,#0FAH
+0010 7003              JNZ     $ + 5H
+0012 020000      R     LJMP    ?C0123
+0015 24F5              ADD     A,#0F5H
+0017 6023              JZ      ?C0114
+0019 240D              ADD     A,#0DH
+001B 6003              JZ      $ + 5H
+001D 020000      R     LJMP    ?C0134
+                                           ; SOURCE LINE # 374
+0020         ?C0107:
+                                           ; SOURCE LINE # 375
+0020 750001      R     MOV     mmi_charge,#01H
+                                           ; SOURCE LINE # 377
+0023 120000      E     LCALL   drv_led_set_mode_light_off
+                                           ; SOURCE LINE # 378
+0026 E4                CLR     A
+0027 FF                MOV     R7,A
+0028 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 379
+002B 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 380
+002E 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 381
+0031 7F13              MOV     R7,#013H
+0033 120000      E     LCALL   _Stop_evTimer
+                                           ; SOURCE LINE # 382
+0036 C28F              CLR     P17
+                                           ; SOURCE LINE # 383
+0038 E4                CLR     A
+0039 F500        R     MOV     sys_state,A
+                                           ; SOURCE LINE # 385
+003B 22                RET     
+                                           ; SOURCE LINE # 386
+003C         ?C0114:
+                                           ; SOURCE LINE # 387
+003C 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 388
+003F AF00        R     MOV     R7,mmi_battery_level
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 26  
+
+0041 7E00              MOV     R6,#00H
+0043 C3                CLR     C
+0044 EF                MOV     A,R7
+0045 9407              SUBB    A,#07H
+0047 7480              MOV     A,#080H
+0049 9480              SUBB    A,#080H
+004B 502F              JNC     ?C0115
+                                           ; SOURCE LINE # 389
+004D 0500        R     INC     mmi_battery_charge_disposition
+                                           ; SOURCE LINE # 390
+004F E500        R     MOV     A,mmi_battery_charge_disposition
+0051 9407              SUBB    A,#07H
+0053 7480              MOV     A,#080H
+0055 9480              SUBB    A,#080H
+0057 4012              JC      ?C0116
+                                           ; SOURCE LINE # 391
+0059 D3                SETB    C
+005A EF                MOV     A,R7
+005B 9402              SUBB    A,#02H
+005D 7480              MOV     A,#080H
+005F 9480              SUBB    A,#080H
+0061 5005              JNC     ?C0117
+                                           ; SOURCE LINE # 392
+0063 750002      R     MOV     mmi_battery_charge_disposition,#02H
+                                           ; SOURCE LINE # 393
+0066 8003              SJMP    ?C0116
+0068         ?C0117:
+                                           ; SOURCE LINE # 394
+0068 850000      R     MOV     mmi_battery_charge_disposition,mmi_battery_level
+                                           ; SOURCE LINE # 395
+                                           ; SOURCE LINE # 396
+006B         ?C0116:
+                                           ; SOURCE LINE # 397
+006B AD00        R     MOV     R5,mmi_battery_charge_disposition
+006D AF00        R     MOV     R7,mmi_battery_level
+006F 120000      E     LCALL   _drv_led_set_battery_charge_light
+                                           ; SOURCE LINE # 398
+0072 7D13              MOV     R5,#013H
+0074 7F64              MOV     R7,#064H
+0076 7E00              MOV     R6,#00H
+0078 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 399
+007B 22                RET     
+007C         ?C0115:
+                                           ; SOURCE LINE # 401
+                                           ; SOURCE LINE # 402
+007C 7F13              MOV     R7,#013H
+007E 120000      E     LCALL   _Stop_evTimer
+                                           ; SOURCE LINE # 403
+0081 E4                CLR     A
+0082 FF                MOV     R7,A
+0083 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 404
+0086 E4                CLR     A
+0087 FF                MOV     R7,A
+0088 120000      E     LCALL   _drv_led_set_current_light
+                                           ; SOURCE LINE # 405
+008B 7D14              MOV     R5,#014H
+008D 7FF4              MOV     R7,#0F4H
+008F 7E01              MOV     R6,#01H
+0091 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 406
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 27  
+
+0094 750004      R     MOV     sys_state,#04H
+                                           ; SOURCE LINE # 407
+                                           ; SOURCE LINE # 408
+0097 22                RET     
+                                           ; SOURCE LINE # 413
+0098         ?C0123:
+                                           ; SOURCE LINE # 414
+0098 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 415
+009B E500        R     MOV     A,act_info+01H
+009D F500        R     MOV     mmi_battery_level,A
+                                           ; SOURCE LINE # 416
+009F AF00        R     MOV     R7,mmi_battery_level
+00A1 120000      E     LCALL   _drv_led_set_bat_level
+                                           ; SOURCE LINE # 417
+00A4 E500        R     MOV     A,mmi_battery_level
+00A6 6407              XRL     A,#07H
+00A8 703C              JNZ     ?C0134
+                                           ; SOURCE LINE # 419
+00AA 7F13              MOV     R7,#013H
+00AC 120000      E     LCALL   _Stop_evTimer
+                                           ; SOURCE LINE # 420
+00AF E4                CLR     A
+00B0 FF                MOV     R7,A
+00B1 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 421
+00B4 E4                CLR     A
+00B5 FF                MOV     R7,A
+00B6 120000      E     LCALL   _drv_led_set_current_light
+                                           ; SOURCE LINE # 422
+00B9 7F07              MOV     R7,#07H
+00BB 120000      E     LCALL   _drv_led_set_battery_light
+                                           ; SOURCE LINE # 423
+00BE 7D14              MOV     R5,#014H
+00C0 7FF4              MOV     R7,#0F4H
+00C2 7E01              MOV     R6,#01H
+00C4 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 424
+00C7 750004      R     MOV     sys_state,#04H
+                                           ; SOURCE LINE # 425
+                                           ; SOURCE LINE # 426
+00CA 22                RET     
+                                           ; SOURCE LINE # 427
+00CB         ?C0128:
+                                           ; SOURCE LINE # 428
+00CB 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 429
+00CE E4                CLR     A
+00CF F500        R     MOV     key_count,A
+                                           ; SOURCE LINE # 430
+00D1 F500        R     MOV     ischarging_full,A
+                                           ; SOURCE LINE # 431
+00D3 120000      E     LCALL   drv_led_set_test_mode_light
+                                           ; SOURCE LINE # 432
+00D6 7D1A              MOV     R5,#01AH
+00D8 7F2C              MOV     R7,#02CH
+00DA 7E01              MOV     R6,#01H
+00DC 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 433
+00DF 750008      R     MOV     sys_state,#08H
+                                           ; SOURCE LINE # 434
+00E2 22                RET     
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 28  
+
+                                           ; SOURCE LINE # 435
+00E3         ?C0132:
+                                           ; SOURCE LINE # 436
+00E3 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 438
+                                           ; SOURCE LINE # 439
+                                           ; SOURCE LINE # 440
+                                           ; SOURCE LINE # 441
+                                           ; SOURCE LINE # 442
+00E6         ?C0134:
+00E6 22                RET     
+             ; FUNCTION sys_charge (END)
+
+             ; FUNCTION sys_charge_full (BEGIN)
+                                           ; SOURCE LINE # 455
+                                           ; SOURCE LINE # 457
+0000 E500        R     MOV     A,act_msg
+0002 601C              JZ      ?C0137
+0004 14                DEC     A
+0005 6072              JZ      ?C0150
+0007 14                DEC     A
+0008 602D              JZ      ?C0138
+000A 24FC              ADD     A,#0FCH
+000C 604F              JZ      ?C0143
+000E 24FE              ADD     A,#0FEH
+0010 603E              JZ      ?C0142
+0012 24F4              ADD     A,#0F4H
+0014 7066              JNZ     ?C0152
+                                           ; SOURCE LINE # 458
+0016         ?C0136:
+                                           ; SOURCE LINE # 459
+0016 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 460
+0019 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 461
+001C 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 462
+001F 22                RET     
+                                           ; SOURCE LINE # 464
+0020         ?C0137:
+                                           ; SOURCE LINE # 465
+0020 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 466
+0023 E4                CLR     A
+0024 FF                MOV     R7,A
+0025 120000      E     LCALL   _drv_led_set_current_light
+                                           ; SOURCE LINE # 467
+0028 AF00        R     MOV     R7,mmi_battery_level
+002A 120000      E     LCALL   _drv_led_set_battery_light
+                                           ; SOURCE LINE # 468
+002D 7D14              MOV     R5,#014H
+002F 7FF4              MOV     R7,#0F4H
+0031 7E01              MOV     R6,#01H
+0033 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 469
+0036 22                RET     
+                                           ; SOURCE LINE # 470
+0037         ?C0138:
+                                           ; SOURCE LINE # 471
+0037 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 472
+003A E4                CLR     A
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 29  
+
+003B F500        R     MOV     key_count,A
+                                           ; SOURCE LINE # 473
+003D 750001      R     MOV     ischarging_full,#01H
+                                           ; SOURCE LINE # 475
+0040 120000      E     LCALL   drv_led_set_test_mode_light
+                                           ; SOURCE LINE # 476
+0043 7D1A              MOV     R5,#01AH
+0045 7F2C              MOV     R7,#02CH
+0047 7E01              MOV     R6,#01H
+0049 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 477
+004C 750008      R     MOV     sys_state,#08H
+                                           ; SOURCE LINE # 479
+004F 22                RET     
+                                           ; SOURCE LINE # 480
+0050         ?C0142:
+                                           ; SOURCE LINE # 481
+0050 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 482
+0053 E500        R     MOV     A,act_info+01H
+0055 F500        R     MOV     mmi_battery_level,A
+                                           ; SOURCE LINE # 483
+0057 AF00        R     MOV     R7,mmi_battery_level
+0059 120000      E     LCALL   _drv_led_set_bat_level
+                                           ; SOURCE LINE # 484
+005C 22                RET     
+                                           ; SOURCE LINE # 485
+005D         ?C0143:
+                                           ; SOURCE LINE # 486
+005D 750001      R     MOV     mmi_charge,#01H
+                                           ; SOURCE LINE # 487
+0060 120000      E     LCALL   drv_led_set_mode_light_off
+                                           ; SOURCE LINE # 488
+0063 E4                CLR     A
+0064 FF                MOV     R7,A
+0065 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 489
+0068 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 490
+006B 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 491
+006E 7F13              MOV     R7,#013H
+0070 120000      E     LCALL   _Stop_evTimer
+                                           ; SOURCE LINE # 492
+0073 C28F              CLR     P17
+                                           ; SOURCE LINE # 493
+0075 E4                CLR     A
+0076 F500        R     MOV     sys_state,A
+                                           ; SOURCE LINE # 494
+0078 22                RET     
+                                           ; SOURCE LINE # 495
+0079         ?C0150:
+                                           ; SOURCE LINE # 496
+0079 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 497
+                                           ; SOURCE LINE # 499
+                                           ; SOURCE LINE # 500
+                                           ; SOURCE LINE # 501
+                                           ; SOURCE LINE # 504
+007C         ?C0152:
+007C 22                RET     
+             ; FUNCTION sys_charge_full (END)
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 30  
+
+
+             ; FUNCTION sys_power_none (BEGIN)
+                                           ; SOURCE LINE # 516
+                                           ; SOURCE LINE # 518
+0000 E500        R     MOV     A,act_msg
+0002 24FB              ADD     A,#0FBH
+0004 604F              JZ      ?C0165
+0006 14                DEC     A
+0007 6078              JZ      ?C0169
+0009 24F5              ADD     A,#0F5H
+000B 7077              JNZ     ?C0171
+                                           ; SOURCE LINE # 519
+000D         ?C0154:
+                                           ; SOURCE LINE # 520
+000D 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 521
+0010 E500        R     MOV     A,none_power_led_flash
+0012 6401              XRL     A,#01H
+0014 702D              JNZ     ?C0155
+                                           ; SOURCE LINE # 522
+0016 F500        R     MOV     none_power_led_flash,A
+                                           ; SOURCE LINE # 523
+0018 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 524
+001B 0500        R     INC     none_power_count
+                                           ; SOURCE LINE # 525
+001D C3                CLR     C
+001E E500        R     MOV     A,none_power_count
+0020 9405              SUBB    A,#05H
+0022 7480              MOV     A,#080H
+0024 9480              SUBB    A,#080H
+0026 4011              JC      ?C0156
+                                           ; SOURCE LINE # 526
+0028 E4                CLR     A
+0029 FF                MOV     R7,A
+002A 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 527
+002D 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 528
+0030 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 529
+0033 C28F              CLR     P17
+                                           ; SOURCE LINE # 530
+0035 E4                CLR     A
+0036 F500        R     MOV     sys_state,A
+                                           ; SOURCE LINE # 531
+0038 22                RET     
+0039         ?C0156:
+                                           ; SOURCE LINE # 532
+0039 7D11              MOV     R5,#011H
+003B 7F19              MOV     R7,#019H
+003D 7E00              MOV     R6,#00H
+003F 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 533
+                                           ; SOURCE LINE # 534
+0042 22                RET     
+0043         ?C0155:
+                                           ; SOURCE LINE # 535
+0043 750001      R     MOV     none_power_led_flash,#01H
+                                           ; SOURCE LINE # 536
+0046 7F02              MOV     R7,#02H
+0048 120000      E     LCALL   _drv_led_set_battery_light
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 31  
+
+                                           ; SOURCE LINE # 537
+004B 7D11              MOV     R5,#011H
+004D 7F19              MOV     R7,#019H
+004F 7E00              MOV     R6,#00H
+0051 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 538
+                                           ; SOURCE LINE # 539
+0054 22                RET     
+                                           ; SOURCE LINE # 552
+0055         ?C0165:
+                                           ; SOURCE LINE # 553
+0055 750001      R     MOV     mmi_charge,#01H
+                                           ; SOURCE LINE # 554
+0058 7F12              MOV     R7,#012H
+005A 120000      E     LCALL   _Stop_evTimer
+                                           ; SOURCE LINE # 555
+005D 7F11              MOV     R7,#011H
+005F 120000      E     LCALL   _Stop_evTimer
+                                           ; SOURCE LINE # 556
+0062 850000      R     MOV     mmi_battery_charge_disposition,mmi_battery_level
+                                           ; SOURCE LINE # 557
+0065 AD00        R     MOV     R5,mmi_battery_charge_disposition
+0067 AF00        R     MOV     R7,mmi_battery_level
+0069 120000      E     LCALL   _drv_led_set_battery_charge_light
+                                           ; SOURCE LINE # 558
+006C 7F01              MOV     R7,#01H
+006E 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 559
+0071 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 560
+0074 7D13              MOV     R5,#013H
+0076 7F64              MOV     R7,#064H
+0078 7E00              MOV     R6,#00H
+007A 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 561
+007D 750003      R     MOV     sys_state,#03H
+                                           ; SOURCE LINE # 564
+0080 22                RET     
+                                           ; SOURCE LINE # 565
+0081         ?C0169:
+                                           ; SOURCE LINE # 566
+0081 E4                CLR     A
+0082 F500        R     MOV     mmi_charge,A
+                                           ; SOURCE LINE # 567
+                                           ; SOURCE LINE # 568
+                                           ; SOURCE LINE # 569
+                                           ; SOURCE LINE # 571
+                                           ; SOURCE LINE # 574
+0084         ?C0171:
+0084 22                RET     
+             ; FUNCTION sys_power_none (END)
+
+             ; FUNCTION sys_error (BEGIN)
+                                           ; SOURCE LINE # 585
+                                           ; SOURCE LINE # 586
+0000 E500        R     MOV     A,act_msg
+0002 24FB              ADD     A,#0FBH
+0004 6066              JZ      ?C0189
+0006 14                DEC     A
+0007 6067              JZ      ?C0190
+0009 24EF              ADD     A,#0EFH
+000B 7066              JNZ     ?C0192
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 32  
+
+                                           ; SOURCE LINE # 587
+000D         ?C0173:
+                                           ; SOURCE LINE # 588
+000D E500        R     MOV     A,knock_led_flash
+000F 6401              XRL     A,#01H
+0011 700B              JNZ     ?C0174
+                                           ; SOURCE LINE # 589
+0013 F500        R     MOV     knock_led_flash,A
+                                           ; SOURCE LINE # 590
+0015 FF                MOV     R7,A
+0016 FE                MOV     R6,A
+0017 120000      E     LCALL   _drv_set_led_r_duty
+                                           ; SOURCE LINE # 591
+001A 0500        R     INC     knock_flash_count
+                                           ; SOURCE LINE # 593
+001C 800A              SJMP    ?C0175
+001E         ?C0174:
+                                           ; SOURCE LINE # 594
+001E 750001      R     MOV     knock_led_flash,#01H
+                                           ; SOURCE LINE # 595
+0021 7F1E              MOV     R7,#01EH
+0023 7E4E              MOV     R6,#04EH
+0025 120000      E     LCALL   _drv_set_led_r_duty
+                                           ; SOURCE LINE # 596
+0028         ?C0175:
+                                           ; SOURCE LINE # 597
+0028 C3                CLR     C
+0029 E500        R     MOV     A,knock_flash_count
+002B 9405              SUBB    A,#05H
+002D 7480              MOV     A,#080H
+002F 9480              SUBB    A,#080H
+0031 402F              JC      ?C0176
+                                           ; SOURCE LINE # 600
+0033 E500        R     MOV     A,mmi_charge
+0035 601F              JZ      ?C0177
+                                           ; SOURCE LINE # 601
+0037 850000      R     MOV     mmi_battery_charge_disposition,mmi_battery_level
+                                           ; SOURCE LINE # 602
+003A AD00        R     MOV     R5,mmi_battery_charge_disposition
+003C AF00        R     MOV     R7,mmi_battery_level
+003E 120000      E     LCALL   _drv_led_set_battery_charge_light
+                                           ; SOURCE LINE # 603
+0041 7F01              MOV     R7,#01H
+0043 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 604
+0046 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 605
+0049 7D13              MOV     R5,#013H
+004B 7F32              MOV     R7,#032H
+004D 7E00              MOV     R6,#00H
+004F 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 606
+0052 750003      R     MOV     sys_state,#03H
+                                           ; SOURCE LINE # 607
+0055 22                RET     
+0056         ?C0177:
+                                           ; SOURCE LINE # 608
+0056 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 609
+0059 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 610
+005C C28F              CLR     P17
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 33  
+
+                                           ; SOURCE LINE # 611
+005E E4                CLR     A
+005F F500        R     MOV     sys_state,A
+                                           ; SOURCE LINE # 612
+                                           ; SOURCE LINE # 614
+0061 22                RET     
+0062         ?C0176:
+                                           ; SOURCE LINE # 615
+0062 7D17              MOV     R5,#017H
+0064 7F32              MOV     R7,#032H
+0066 7E00              MOV     R6,#00H
+0068 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 616
+                                           ; SOURCE LINE # 617
+006B 22                RET     
+                                           ; SOURCE LINE # 618
+006C         ?C0189:
+                                           ; SOURCE LINE # 619
+006C 750001      R     MOV     mmi_charge,#01H
+                                           ; SOURCE LINE # 620
+006F 22                RET     
+                                           ; SOURCE LINE # 621
+0070         ?C0190:
+                                           ; SOURCE LINE # 622
+0070 E4                CLR     A
+0071 F500        R     MOV     mmi_charge,A
+                                           ; SOURCE LINE # 623
+                                           ; SOURCE LINE # 624
+                                           ; SOURCE LINE # 625
+                                           ; SOURCE LINE # 626
+                                           ; SOURCE LINE # 627
+0073         ?C0192:
+0073 22                RET     
+             ; FUNCTION sys_error (END)
+
+             ; FUNCTION sys_test_wait (BEGIN)
+                                           ; SOURCE LINE # 641
+                                           ; SOURCE LINE # 642
+0000 E500        R     MOV     A,act_msg
+0002 24E6              ADD     A,#0E6H
+0004 603F              JZ      ?C0199
+0006 241A              ADD     A,#01AH
+0008 7069              JNZ     ?C0209
+                                           ; SOURCE LINE # 643
+000A         ?C0194:
+                                           ; SOURCE LINE # 644
+000A 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 645
+000D 0500        R     INC     key_count
+                                           ; SOURCE LINE # 646
+000F C3                CLR     C
+0010 E500        R     MOV     A,key_count
+0012 9402              SUBB    A,#02H
+0014 7480              MOV     A,#080H
+0016 9480              SUBB    A,#080H
+0018 4059              JC      ?C0209
+                                           ; SOURCE LINE # 647
+001A 7F1A              MOV     R7,#01AH
+001C 120000      E     LCALL   _Stop_evTimer
+                                           ; SOURCE LINE # 648
+001F 750002      R     MOV     runing_mode,#02H
+                                           ; SOURCE LINE # 649
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 34  
+
+0022 AF00        R     MOV     R7,runing_mode
+0024 120000      E     LCALL   _drv_motor_start
+                                           ; SOURCE LINE # 651
+0027 120000      E     LCALL   drv_led_set_test_mode_light
+                                           ; SOURCE LINE # 652
+002A 7F1E              MOV     R7,#01EH
+002C 7E4E              MOV     R6,#04EH
+002E 120000      E     LCALL   _drv_set_led_r_duty
+                                           ; SOURCE LINE # 653
+0031 7F1E              MOV     R7,#01EH
+0033 7E4E              MOV     R6,#04EH
+0035 120000      E     LCALL   _drv_set_led_b_duty
+                                           ; SOURCE LINE # 654
+0038 7D19              MOV     R5,#019H
+003A 7F70              MOV     R7,#070H
+003C 7E17              MOV     R6,#017H
+003E 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 655
+0041 750009      R     MOV     sys_state,#09H
+                                           ; SOURCE LINE # 656
+                                           ; SOURCE LINE # 657
+0044 22                RET     
+                                           ; SOURCE LINE # 658
+0045         ?C0199:
+                                           ; SOURCE LINE # 659
+0045 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 660
+0048 E500        R     MOV     A,ischarging_full
+004A 6401              XRL     A,#01H
+004C 7007              JNZ     ?C0200
+                                           ; SOURCE LINE # 661
+004E 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 662
+0051 750004      R     MOV     sys_state,#04H
+                                           ; SOURCE LINE # 663
+0054 22                RET     
+0055         ?C0200:
+                                           ; SOURCE LINE # 665
+                                           ; SOURCE LINE # 666
+0055 850000      R     MOV     mmi_battery_charge_disposition,mmi_battery_level
+                                           ; SOURCE LINE # 667
+0058 AD00        R     MOV     R5,mmi_battery_charge_disposition
+005A AF00        R     MOV     R7,mmi_battery_level
+005C 120000      E     LCALL   _drv_led_set_battery_charge_light
+                                           ; SOURCE LINE # 668
+005F 7F01              MOV     R7,#01H
+0061 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 669
+0064 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 670
+0067 7D13              MOV     R5,#013H
+0069 7F64              MOV     R7,#064H
+006B 7E00              MOV     R6,#00H
+006D 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 671
+0070 750003      R     MOV     sys_state,#03H
+                                           ; SOURCE LINE # 672
+                                           ; SOURCE LINE # 673
+                                           ; SOURCE LINE # 674
+                                           ; SOURCE LINE # 675
+                                           ; SOURCE LINE # 676
+                                           ; SOURCE LINE # 679
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 35  
+
+0073         ?C0209:
+0073 22                RET     
+             ; FUNCTION sys_test_wait (END)
+
+             ; FUNCTION sys_test (BEGIN)
+                                           ; SOURCE LINE # 691
+                                           ; SOURCE LINE # 692
+0000 E500        R     MOV     A,act_msg
+0002 14                DEC     A
+0003 606D              JZ      ?C0220
+0005 24FD              ADD     A,#0FDH
+0007 6065              JZ      ?C0216
+0009 24FC              ADD     A,#0FCH
+000B 605D              JZ      ?C0215
+000D 24F0              ADD     A,#0F0H
+000F 6033              JZ      ?C0214
+0011 14                DEC     A
+0012 706F              JNZ     ?C0225
+                                           ; SOURCE LINE # 693
+0014         ?C0211:
+                                           ; SOURCE LINE # 694
+0014 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 695
+0017 0500        R     INC     runing_time_count
+                                           ; SOURCE LINE # 696
+0019 C3                CLR     C
+001A E500        R     MOV     A,runing_time_count
+001C 940A              SUBB    A,#0AH
+001E 7480              MOV     A,#080H
+0020 9480              SUBB    A,#080H
+0022 4016              JC      ?C0212
+                                           ; SOURCE LINE # 697
+0024 E4                CLR     A
+0025 F500        R     MOV     runing_time_count,A
+                                           ; SOURCE LINE # 698
+0027 120000      E     LCALL   drv_motor_stop
+                                           ; SOURCE LINE # 699
+002A 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 700
+002D 120000      E     LCALL   drv_led_set_mode_light_off
+                                           ; SOURCE LINE # 701
+0030 7D18              MOV     R5,#018H
+0032 7F70              MOV     R7,#070H
+0034 7E17              MOV     R6,#017H
+0036 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 702
+0039 22                RET     
+003A         ?C0212:
+                                           ; SOURCE LINE # 703
+003A 7D19              MOV     R5,#019H
+003C 7F70              MOV     R7,#070H
+003E 7E17              MOV     R6,#017H
+0040 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 704
+                                           ; SOURCE LINE # 705
+0043 22                RET     
+                                           ; SOURCE LINE # 706
+0044         ?C0214:
+                                           ; SOURCE LINE # 707
+0044 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 708
+0047 750002      R     MOV     runing_mode,#02H
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 36  
+
+                                           ; SOURCE LINE # 709
+004A AF00        R     MOV     R7,runing_mode
+004C 120000      E     LCALL   _drv_motor_start
+                                           ; SOURCE LINE # 710
+004F 120000      E     LCALL   drv_led_set_test_mode_light
+                                           ; SOURCE LINE # 711
+0052 7F1E              MOV     R7,#01EH
+0054 7E4E              MOV     R6,#04EH
+0056 120000      E     LCALL   _drv_set_led_r_duty
+                                           ; SOURCE LINE # 712
+0059 7F1E              MOV     R7,#01EH
+005B 7E4E              MOV     R6,#04EH
+005D 120000      E     LCALL   _drv_set_led_b_duty
+                                           ; SOURCE LINE # 714
+0060 7D19              MOV     R5,#019H
+0062 7F70              MOV     R7,#070H
+0064 7E17              MOV     R6,#017H
+0066 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 715
+0069 22                RET     
+                                           ; SOURCE LINE # 716
+006A         ?C0215:
+                                           ; SOURCE LINE # 717
+006A 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 718
+006D 22                RET     
+                                           ; SOURCE LINE # 721
+006E         ?C0216:
+                                           ; SOURCE LINE # 722
+006E 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 723
+0071 22                RET     
+                                           ; SOURCE LINE # 724
+0072         ?C0220:
+                                           ; SOURCE LINE # 725
+0072 C28F              CLR     P17
+                                           ; SOURCE LINE # 726
+0074 120000      E     LCALL   drv_motor_stop
+                                           ; SOURCE LINE # 727
+0077 120000      E     LCALL   drv_led_set_mode_light_off
+                                           ; SOURCE LINE # 728
+007A 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 729
+007D 120000      E     LCALL   drv_led_set_battery_light_off
+                                           ; SOURCE LINE # 730
+0080 750006      R     MOV     sys_state,#06H
+                                           ; SOURCE LINE # 731
+                                           ; SOURCE LINE # 732
+                                           ; SOURCE LINE # 733
+                                           ; SOURCE LINE # 734
+                                           ; SOURCE LINE # 737
+0083         ?C0225:
+0083 22                RET     
+             ; FUNCTION sys_test (END)
+
+             ; FUNCTION sys_powerkey_release_wait (BEGIN)
+                                           ; SOURCE LINE # 749
+                                           ; SOURCE LINE # 751
+0000 E500        R     MOV     A,act_msg
+0002 24FB              ADD     A,#0FBH
+0004 6031              JZ      ?C0236
+0006 14                DEC     A
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 37  
+
+0007 6032              JZ      ?C0237
+0009 2403              ADD     A,#03H
+000B 7031              JNZ     ?C0239
+                                           ; SOURCE LINE # 752
+000D         ?C0227:
+                                           ; SOURCE LINE # 753
+000D 750001      R     MOV     msg_processed,#01H
+                                           ; SOURCE LINE # 754
+0010 E500        R     MOV     A,mmi_charge
+0012 601F              JZ      ?C0235
+                                           ; SOURCE LINE # 755
+0014 850000      R     MOV     mmi_battery_charge_disposition,mmi_battery_level
+                                           ; SOURCE LINE # 756
+0017 AD00        R     MOV     R5,mmi_battery_charge_disposition
+0019 AF00        R     MOV     R7,mmi_battery_level
+001B 120000      E     LCALL   _drv_led_set_battery_charge_light
+                                           ; SOURCE LINE # 757
+001E 7F01              MOV     R7,#01H
+0020 120000      E     LCALL   _drv_led_set_charge_onoff
+                                           ; SOURCE LINE # 758
+0023 120000      E     LCALL   drv_led_set_current_light_reset
+                                           ; SOURCE LINE # 759
+0026 7D13              MOV     R5,#013H
+0028 7F64              MOV     R7,#064H
+002A 7E00              MOV     R6,#00H
+002C 120000      E     LCALL   _Start_evTimer
+                                           ; SOURCE LINE # 760
+002F 750003      R     MOV     sys_state,#03H
+                                           ; SOURCE LINE # 761
+0032 22                RET     
+0033         ?C0235:
+                                           ; SOURCE LINE # 762
+0033 E4                CLR     A
+0034 F500        R     MOV     sys_state,A
+                                           ; SOURCE LINE # 763
+                                           ; SOURCE LINE # 764
+0036 22                RET     
+                                           ; SOURCE LINE # 765
+0037         ?C0236:
+                                           ; SOURCE LINE # 766
+0037 750001      R     MOV     mmi_charge,#01H
+                                           ; SOURCE LINE # 767
+003A 22                RET     
+                                           ; SOURCE LINE # 768
+003B         ?C0237:
+                                           ; SOURCE LINE # 769
+003B E4                CLR     A
+003C F500        R     MOV     mmi_charge,A
+                                           ; SOURCE LINE # 770
+                                           ; SOURCE LINE # 771
+                                           ; SOURCE LINE # 772
+                                           ; SOURCE LINE # 773
+                                           ; SOURCE LINE # 774
+003E         ?C0239:
+003E 22                RET     
+             ; FUNCTION sys_powerkey_release_wait (END)
+
+             ; FUNCTION sys_process (BEGIN)
+                                           ; SOURCE LINE # 786
+                                           ; SOURCE LINE # 790
+0000 750000      E     MOV     ?_get_message?BYTE+03H,#00H
+0003 750000      R     MOV     ?_get_message?BYTE+04H,#HIGH act_info
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 38  
+
+0006 750000      R     MOV     ?_get_message?BYTE+05H,#LOW act_info
+0009 7B00              MOV     R3,#00H
+000B 7A00        R     MOV     R2,#HIGH act_msg
+000D 7900        R     MOV     R1,#LOW act_msg
+000F 120000      E     LCALL   _get_message
+0012 EF                MOV     A,R7
+0013 6066              JZ      ?C0241
+                                           ; SOURCE LINE # 792
+                                           ; SOURCE LINE # 793
+0015 E4                CLR     A
+0016 F500        R     MOV     msg_processed,A
+                                           ; SOURCE LINE # 794
+0018 E500        R     MOV     A,sys_state
+001A B40A00            CJNE    A,#0AH,?C0256
+001D         ?C0256:
+001D 5055              JNC     ?C0242
+001F 900000      R     MOV     DPTR,#?C0257
+0022 F8                MOV     R0,A
+0023 28                ADD     A,R0
+0024 28                ADD     A,R0
+0025 73                JMP     @A+DPTR
+0026         ?C0257:
+0026 020000      R     LJMP    ?C0243
+0029 020000      R     LJMP    ?C0244
+002C 020000      R     LJMP    ?C0245
+002F 020000      R     LJMP    ?C0246
+0032 020000      R     LJMP    ?C0247
+0035 020000      R     LJMP    ?C0248
+0038 020000      R     LJMP    ?C0249
+003B 020000      R     LJMP    ?C0250
+003E 020000      R     LJMP    ?C0251
+0041 020000      R     LJMP    ?C0252
+                                           ; SOURCE LINE # 795
+0044         ?C0243:
+                                           ; SOURCE LINE # 796
+0044 120000      R     LCALL   sys_power_up
+                                           ; SOURCE LINE # 797
+0047 802B              SJMP    ?C0242
+                                           ; SOURCE LINE # 798
+0049         ?C0244:
+                                           ; SOURCE LINE # 799
+0049 120000      R     LCALL   sys_stop
+                                           ; SOURCE LINE # 800
+004C 8026              SJMP    ?C0242
+                                           ; SOURCE LINE # 801
+004E         ?C0245:
+                                           ; SOURCE LINE # 802
+004E 120000      R     LCALL   sys_runing
+                                           ; SOURCE LINE # 803
+0051 8021              SJMP    ?C0242
+                                           ; SOURCE LINE # 804
+0053         ?C0246:
+                                           ; SOURCE LINE # 805
+0053 120000      R     LCALL   sys_charge
+                                           ; SOURCE LINE # 806
+0056 801C              SJMP    ?C0242
+                                           ; SOURCE LINE # 808
+0058         ?C0247:
+                                           ; SOURCE LINE # 809
+0058 120000      R     LCALL   sys_charge_full
+                                           ; SOURCE LINE # 810
+005B 8017              SJMP    ?C0242
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 39  
+
+                                           ; SOURCE LINE # 811
+005D         ?C0248:
+                                           ; SOURCE LINE # 812
+005D 120000      R     LCALL   sys_power_none
+                                           ; SOURCE LINE # 813
+0060 8012              SJMP    ?C0242
+                                           ; SOURCE LINE # 814
+0062         ?C0249:
+                                           ; SOURCE LINE # 815
+0062 120000      R     LCALL   sys_powerkey_release_wait
+                                           ; SOURCE LINE # 816
+0065 800D              SJMP    ?C0242
+                                           ; SOURCE LINE # 817
+0067         ?C0250:
+                                           ; SOURCE LINE # 818
+0067 120000      R     LCALL   sys_error
+                                           ; SOURCE LINE # 819
+006A 8008              SJMP    ?C0242
+                                           ; SOURCE LINE # 820
+006C         ?C0251:
+                                           ; SOURCE LINE # 821
+006C 120000      R     LCALL   sys_test_wait
+                                           ; SOURCE LINE # 822
+006F 8003              SJMP    ?C0242
+                                           ; SOURCE LINE # 824
+0071         ?C0252:
+                                           ; SOURCE LINE # 825
+0071 120000      R     LCALL   sys_test
+                                           ; SOURCE LINE # 826
+                                           ; SOURCE LINE # 827
+                                           ; SOURCE LINE # 828
+                                           ; SOURCE LINE # 829
+0074         ?C0242:
+                                           ; SOURCE LINE # 831
+0074 E500        R     MOV     A,msg_processed
+0076 7003              JNZ     ?C0241
+                                           ; SOURCE LINE # 832
+0078 120000      R     LCALL   common_ev_Process
+                                           ; SOURCE LINE # 833
+                                           ; SOURCE LINE # 835
+007B         ?C0241:
+007B 22                RET     
+             ; FUNCTION sys_process (END)
+
+             ; FUNCTION sys_process_ini (BEGIN)
+                                           ; SOURCE LINE # 837
+                                           ; SOURCE LINE # 839
+0000 E4                CLR     A
+0001 F500        R     MOV     sys_state,A
+                                           ; SOURCE LINE # 841
+0003 22                RET     
+             ; FUNCTION sys_process_ini (END)
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1834    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     19    ----
+   IDATA SIZE       =   ----    ----
+C51 COMPILER V9.59.0.0   SYS_MANAGE                                                        06/28/2022 11:43:46 PAGE 40  
+
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

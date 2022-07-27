@@ -1,0 +1,618 @@
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE DRV_BATTERY
+OBJECT MODULE PLACED IN .\out\drv_battery.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\drv_battery.c OPTIMIZE(7,SPEED) BROWSE NOAREGS INCDIR(.\inc) DEFINE(
+                    -xLDO_5V) DEBUG OBJECTEXTEND CODE PRINT(.\lst\drv_battery.lst) TABS(2) OBJECT(.\out\drv_battery.obj)
+
+line level    source
+
+   1          
+   2          #include  "MC96FD316.h"
+   3          #include  "types.h"
+   4          #include  "drv_charge.h"
+   5          #include    "sys_message.h"
+   6          #include  "drv_adc.h"
+   7          #include  "drv_battery.h"
+   8          
+   9          
+  10          #define DRV_BATTERY_TICK          200 //ms
+  11          #define BATTERY_FIRST_DEBOUNCE_TIME     (1000/DRV_BATTERY_TICK)
+  12          #define BATTERY_CHK_DEBOUCNE_TIME     (20000/DRV_BATTERY_TICK)
+  13          #define BATTERY_CHK_DEBOUNCE_CHARGE_TIME  (1000/DRV_BATTERY_TICK)
+  14          
+  15          uint8_t drv_battery_tick;
+  16          BATTERY_CTRL_t xdata BatteryCtrl;
+  17          
+  18          /******************************************************************************************
+  19          *  FUNCTION NAME: drv_battery
+  20          *  INPUTS:
+  21          *  OUTPUTS:
+  22          *  VALUE RETURNED:     void.
+  23          *  DESCRIPTION:      
+  24          *  CAUTIONS:    .
+  25          ******************************************************************************************
+  26          * MODIFICATION HISTORY:
+  27          * Date          Person                  Change
+  28          * ---------------------------------------------------------------------------------------
+  29          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  30          ******************************************************************************************/
+  31          
+  32          uint8_t ReadBatteryLevel(BOOL charge){
+  33   1        uint8_t battery_level;
+  34   1      
+  35   1        uint16_t battery_adc; 
+  36   1      
+  37   1      
+  38   1        battery_adc=drv_read_adc_battery();
+  39   1      
+  40   1      #if 1
+  41   1        if(charge){
+  42   2          if(battery_adc>=CHARGE_VOLT_24V5){
+  43   3            battery_level=BAT_FULL;
+  44   3          }else if(battery_adc>=CHARGE_VOLT_22V0){
+  45   3            battery_level=BAT_LEVEL5;
+  46   3            
+  47   3          }else if(battery_adc>=CHARGE_VOLT_21V0){
+  48   3            battery_level=BAT_LEVEL4;
+  49   3      
+  50   3          }else if(battery_adc>=CHARGE_VOLT_20V0){  
+  51   3            battery_level=BAT_LEVEL3;
+  52   3      
+  53   3          }else if(battery_adc>=CHARGE_VOLT_19V0){  
+  54   3            battery_level=BAT_LEVEL2; //
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 2   
+
+  55   3      
+  56   3          }else if(battery_adc>=CHARGE_VOLT_18V0){            
+  57   3            battery_level=BAT_LEVEL1; //18V  LED LIGHT
+  58   3          }else if(battery_adc>=CHARGE_VOLT_17V0){
+  59   3            battery_level=BAT_LOW; // FLASH ALL LED
+  60   3          }else{
+  61   3            battery_level=BAT_NONE;//POWER OFF,
+  62   3          }
+  63   2        }
+  64   1        else
+  65   1      #endif
+  66   1      
+  67   1        {
+  68   2      
+  69   2          if(battery_adc>=VOLT_24V5){
+  70   3            battery_level=BAT_FULL;
+  71   3          }else if(battery_adc>=VOLT_22V0){
+  72   3            battery_level=BAT_LEVEL5;
+  73   3          }else if(battery_adc>=VOLT_21V0){
+  74   3            battery_level=BAT_LEVEL4;
+  75   3          }else if(battery_adc>=VOLT_20V0){ 
+  76   3            battery_level=BAT_LEVEL3;
+  77   3          }else if(battery_adc>=VOLT_19V0){ 
+  78   3            battery_level=BAT_LEVEL2;
+  79   3          }else if(battery_adc>=VOLT_18V0){   
+  80   3            battery_level=BAT_LEVEL1;
+  81   3          }else if(battery_adc>=VOLT_17V0){   
+  82   3            battery_level=BAT_LOW; // FLASH ALL LED
+  83   3          }else{
+  84   3            battery_level=BAT_NONE;//POWER OFF,
+  85   3          }
+  86   2        }
+  87   1        
+  88   1        return battery_level;
+  89   1      }
+  90          /******************************************************************************************
+  91          *  FUNCTION NAME: drv_battery
+  92          *  INPUTS:
+  93          *  OUTPUTS:
+  94          *  VALUE RETURNED:     void.
+  95          *  DESCRIPTION:      
+  96          *  CAUTIONS:    .
+  97          ******************************************************************************************
+  98          * MODIFICATION HISTORY:
+  99          * Date          Person                  Change
+ 100          * ---------------------------------------------------------------------------------------
+ 101          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 102          ******************************************************************************************/
+ 103          
+ 104          
+ 105          void  drv_battery(void){
+ 106   1      uint8_t level;
+ 107   1      BOOL  chargeing;
+ 108   1      
+ 109   1          if(drv_battery_tick<DRV_BATTERY_TICK) return;
+ 110   1          drv_battery_tick=0;
+ 111   1          
+ 112   1          switch(BatteryCtrl.state){
+ 113   2          case ST_BATTERY_POWER_ON:
+ 114   2            BatteryCtrl.debouceTime=0;
+ 115   2            BatteryCtrl.state=ST_BATTERY_IDLE;
+ 116   2            break;
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 3   
+
+ 117   2          case ST_BATTERY_IDLE:
+ 118   2            level=ReadBatteryLevel(0);
+ 119   2            if(BatteryCtrl.batery_level!=level){
+ 120   3              BatteryCtrl.batery_level=level;
+ 121   3              BatteryCtrl.debouceTime=0;
+ 122   3            }
+ 123   2            else
+ 124   2            {
+ 125   3              BatteryCtrl.debouceTime++;
+ 126   3              if(BatteryCtrl.debouceTime>=BATTERY_FIRST_DEBOUNCE_TIME){
+ 127   4                BatteryCtrl.batery_level=level;
+ 128   4                put_message(MSG_BATTERY_CHANGE_IND, BatteryCtrl.batery_level);
+ 129   4                BatteryCtrl.state=ST_BATTERY_CHK;
+ 130   4              }
+ 131   3            }
+ 132   2            break;
+ 133   2          case ST_BATTERY_CHK:
+ 134   2            chargeing=ReadChargeState();
+ 135   2            level=ReadBatteryLevel(chargeing);
+ 136   2            if(chargeing){
+ 137   3              if(level>BatteryCtrl.batery_level){
+ 138   4                BatteryCtrl.debouceTime++;
+ 139   4                if(BatteryCtrl.debouceTime>BATTERY_CHK_DEBOUNCE_CHARGE_TIME){
+ 140   5                  BatteryCtrl.batery_level=level;
+ 141   5                  put_message(MSG_BATTERY_CHANGE_IND, level);
+ 142   5                }
+ 143   4              }else{
+ 144   4                BatteryCtrl.debouceTime=0;
+ 145   4              }
+ 146   3            }
+ 147   2            else
+ 148   2            {
+ 149   3              if(level<BatteryCtrl.batery_level){
+ 150   4                BatteryCtrl.debouceTime++;
+ 151   4                if(BatteryCtrl.debouceTime>BATTERY_CHK_DEBOUCNE_TIME){
+ 152   5                  BatteryCtrl.batery_level=level;
+ 153   5                  put_message(MSG_BATTERY_CHANGE_IND, level);
+ 154   5                }
+ 155   4              }else{
+ 156   4                BatteryCtrl.debouceTime=0;
+ 157   4              }
+ 158   3            }
+ 159   2            break;
+ 160   2          default:
+ 161   2          break;
+ 162   2          }
+ 163   1      }
+ 164          /******************************************************************************************
+ 165          *  FUNCTION NAME: drv_battery_ini
+ 166          *  INPUTS:
+ 167          *  OUTPUTS:
+ 168          *  VALUE RETURNED:     void.
+ 169          *  DESCRIPTION:      
+ 170          *  CAUTIONS:    .
+ 171          ******************************************************************************************
+ 172          * MODIFICATION HISTORY:
+ 173          * Date          Person                  Change
+ 174          * ---------------------------------------------------------------------------------------
+ 175          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 176          ******************************************************************************************/
+ 177          
+ 178          
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 4   
+
+ 179          void  drv_battery_ini(void){
+ 180   1        BatteryCtrl.debouceTime=0;
+ 181   1        BatteryCtrl.state=ST_BATTERY_POWER_ON;
+ 182   1      
+ 183   1      }
+ 184          
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 5   
+
+ASSEMBLY LISTING OF GENERATED OBJECT CODE
+
+
+             ; FUNCTION _ReadBatteryLevel (BEGIN)
+                                           ; SOURCE LINE # 32
+0000 8F00        R     MOV     charge,R7
+                                           ; SOURCE LINE # 38
+0002 120000      E     LCALL   drv_read_adc_battery
+;---- Variable 'battery_adc' assigned to Register 'R6/R7' ----
+                                           ; SOURCE LINE # 41
+0005 E500        R     MOV     A,charge
+0007 606C              JZ      ?C0001
+                                           ; SOURCE LINE # 42
+0009 C3                CLR     C
+000A EF                MOV     A,R7
+000B 9425              SUBB    A,#025H
+000D EE                MOV     A,R6
+000E 9403              SUBB    A,#03H
+0010 4006              JC      ?C0002
+                                           ; SOURCE LINE # 43
+0012 750007      R     MOV     battery_level,#07H
+                                           ; SOURCE LINE # 44
+0015 020000      R     LJMP    ?C0016
+0018         ?C0002:
+0018 C3                CLR     C
+0019 EF                MOV     A,R7
+001A 94D3              SUBB    A,#0D3H
+001C EE                MOV     A,R6
+001D 9402              SUBB    A,#02H
+001F 4006              JC      ?C0004
+                                           ; SOURCE LINE # 45
+0021 750006      R     MOV     battery_level,#06H
+                                           ; SOURCE LINE # 47
+0024 020000      R     LJMP    ?C0016
+0027         ?C0004:
+0027 C3                CLR     C
+0028 EF                MOV     A,R7
+0029 94B2              SUBB    A,#0B2H
+002B EE                MOV     A,R6
+002C 9402              SUBB    A,#02H
+002E 4006              JC      ?C0006
+                                           ; SOURCE LINE # 48
+0030 750005      R     MOV     battery_level,#05H
+                                           ; SOURCE LINE # 50
+0033 020000      R     LJMP    ?C0016
+0036         ?C0006:
+0036 C3                CLR     C
+0037 EF                MOV     A,R7
+0038 9492              SUBB    A,#092H
+003A EE                MOV     A,R6
+003B 9402              SUBB    A,#02H
+003D 4006              JC      ?C0008
+                                           ; SOURCE LINE # 51
+003F 750004      R     MOV     battery_level,#04H
+                                           ; SOURCE LINE # 53
+0042 020000      R     LJMP    ?C0016
+0045         ?C0008:
+0045 C3                CLR     C
+0046 EF                MOV     A,R7
+0047 9471              SUBB    A,#071H
+0049 EE                MOV     A,R6
+004A 9402              SUBB    A,#02H
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 6   
+
+004C 4006              JC      ?C0010
+                                           ; SOURCE LINE # 54
+004E 750003      R     MOV     battery_level,#03H
+                                           ; SOURCE LINE # 56
+0051 020000      R     LJMP    ?C0016
+0054         ?C0010:
+0054 C3                CLR     C
+0055 EF                MOV     A,R7
+0056 9450              SUBB    A,#050H
+0058 EE                MOV     A,R6
+0059 9402              SUBB    A,#02H
+005B 4005              JC      ?C0012
+                                           ; SOURCE LINE # 57
+005D 750002      R     MOV     battery_level,#02H
+                                           ; SOURCE LINE # 58
+0060 8078              SJMP    ?C0016
+0062         ?C0012:
+0062 C3                CLR     C
+0063 EF                MOV     A,R7
+0064 942F              SUBB    A,#02FH
+0066 EE                MOV     A,R6
+0067 9402              SUBB    A,#02H
+0069 4005              JC      ?C0014
+                                           ; SOURCE LINE # 59
+006B 750001      R     MOV     battery_level,#01H
+                                           ; SOURCE LINE # 60
+006E 806A              SJMP    ?C0016
+0070         ?C0014:
+                                           ; SOURCE LINE # 61
+0070 E4                CLR     A
+0071 F500        R     MOV     battery_level,A
+                                           ; SOURCE LINE # 62
+                                           ; SOURCE LINE # 63
+0073 8065              SJMP    ?C0016
+0075         ?C0001:
+                                           ; SOURCE LINE # 67
+                                           ; SOURCE LINE # 69
+0075 C3                CLR     C
+0076 EF                MOV     A,R7
+0077 9425              SUBB    A,#025H
+0079 EE                MOV     A,R6
+007A 9403              SUBB    A,#03H
+007C 4005              JC      ?C0017
+                                           ; SOURCE LINE # 70
+007E 750007      R     MOV     battery_level,#07H
+                                           ; SOURCE LINE # 71
+0081 8057              SJMP    ?C0016
+0083         ?C0017:
+0083 C3                CLR     C
+0084 EF                MOV     A,R7
+0085 94D3              SUBB    A,#0D3H
+0087 EE                MOV     A,R6
+0088 9402              SUBB    A,#02H
+008A 4005              JC      ?C0019
+                                           ; SOURCE LINE # 72
+008C 750006      R     MOV     battery_level,#06H
+                                           ; SOURCE LINE # 73
+008F 8049              SJMP    ?C0016
+0091         ?C0019:
+0091 C3                CLR     C
+0092 EF                MOV     A,R7
+0093 94B2              SUBB    A,#0B2H
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 7   
+
+0095 EE                MOV     A,R6
+0096 9402              SUBB    A,#02H
+0098 4005              JC      ?C0021
+                                           ; SOURCE LINE # 74
+009A 750005      R     MOV     battery_level,#05H
+                                           ; SOURCE LINE # 75
+009D 803B              SJMP    ?C0016
+009F         ?C0021:
+009F C3                CLR     C
+00A0 EF                MOV     A,R7
+00A1 9492              SUBB    A,#092H
+00A3 EE                MOV     A,R6
+00A4 9402              SUBB    A,#02H
+00A6 4005              JC      ?C0023
+                                           ; SOURCE LINE # 76
+00A8 750004      R     MOV     battery_level,#04H
+                                           ; SOURCE LINE # 77
+00AB 802D              SJMP    ?C0016
+00AD         ?C0023:
+00AD C3                CLR     C
+00AE EF                MOV     A,R7
+00AF 9471              SUBB    A,#071H
+00B1 EE                MOV     A,R6
+00B2 9402              SUBB    A,#02H
+00B4 4005              JC      ?C0025
+                                           ; SOURCE LINE # 78
+00B6 750003      R     MOV     battery_level,#03H
+                                           ; SOURCE LINE # 79
+00B9 801F              SJMP    ?C0016
+00BB         ?C0025:
+00BB C3                CLR     C
+00BC EF                MOV     A,R7
+00BD 9450              SUBB    A,#050H
+00BF EE                MOV     A,R6
+00C0 9402              SUBB    A,#02H
+00C2 4005              JC      ?C0027
+                                           ; SOURCE LINE # 80
+00C4 750002      R     MOV     battery_level,#02H
+                                           ; SOURCE LINE # 81
+00C7 8011              SJMP    ?C0016
+00C9         ?C0027:
+00C9 C3                CLR     C
+00CA EF                MOV     A,R7
+00CB 942F              SUBB    A,#02FH
+00CD EE                MOV     A,R6
+00CE 9402              SUBB    A,#02H
+00D0 4005              JC      ?C0029
+                                           ; SOURCE LINE # 82
+00D2 750001      R     MOV     battery_level,#01H
+                                           ; SOURCE LINE # 83
+00D5 8003              SJMP    ?C0016
+00D7         ?C0029:
+                                           ; SOURCE LINE # 84
+00D7 E4                CLR     A
+00D8 F500        R     MOV     battery_level,A
+                                           ; SOURCE LINE # 85
+                                           ; SOURCE LINE # 86
+00DA         ?C0016:
+                                           ; SOURCE LINE # 88
+00DA AF00        R     MOV     R7,battery_level
+                                           ; SOURCE LINE # 89
+00DC 22                RET     
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 8   
+
+             ; FUNCTION _ReadBatteryLevel (END)
+
+             ; FUNCTION drv_battery (BEGIN)
+                                           ; SOURCE LINE # 105
+                                           ; SOURCE LINE # 109
+0000 C3                CLR     C
+0001 E500        R     MOV     A,drv_battery_tick
+0003 94C8              SUBB    A,#0C8H
+0005 7480              MOV     A,#080H
+0007 9480              SUBB    A,#080H
+0009 5003              JNC     $ + 5H
+000B 020000      R     LJMP    ?C0033
+                                           ; SOURCE LINE # 110
+000E E4                CLR     A
+000F F500        R     MOV     drv_battery_tick,A
+                                           ; SOURCE LINE # 112
+0011 900000      R     MOV     DPTR,#BatteryCtrl
+0014 E0                MOVX    A,@DPTR
+0015 14                DEC     A
+0016 6015              JZ      ?C0036
+0018 14                DEC     A
+0019 6051              JZ      ?C0040
+001B 2402              ADD     A,#02H
+001D 6003              JZ      $ + 5H
+001F 020000      R     LJMP    ?C0033
+                                           ; SOURCE LINE # 113
+0022         ?C0035:
+                                           ; SOURCE LINE # 114
+0022 E4                CLR     A
+0023 900000      R     MOV     DPTR,#BatteryCtrl+02H
+0026 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 115
+0027 900000      R     MOV     DPTR,#BatteryCtrl
+002A 04                INC     A
+002B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 116
+002C 22                RET     
+                                           ; SOURCE LINE # 117
+002D         ?C0036:
+                                           ; SOURCE LINE # 118
+002D E4                CLR     A
+002E FF                MOV     R7,A
+002F 120000      R     LCALL   _ReadBatteryLevel
+0032 8F00        R     MOV     level,R7
+                                           ; SOURCE LINE # 119
+0034 900000      R     MOV     DPTR,#BatteryCtrl+01H
+0037 E0                MOVX    A,@DPTR
+0038 6500        R     XRL     A,level
+003A 6007              JZ      ?C0037
+                                           ; SOURCE LINE # 120
+003C E500        R     MOV     A,level
+003E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 121
+003F E4                CLR     A
+0040 A3                INC     DPTR
+0041 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 122
+0042 22                RET     
+0043         ?C0037:
+                                           ; SOURCE LINE # 124
+                                           ; SOURCE LINE # 125
+0043 900000      R     MOV     DPTR,#BatteryCtrl+02H
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 9   
+
+0046 E0                MOVX    A,@DPTR
+0047 04                INC     A
+0048 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 126
+0049 E0                MOVX    A,@DPTR
+004A C3                CLR     C
+004B 9405              SUBB    A,#05H
+004D 7480              MOV     A,#080H
+004F 9480              SUBB    A,#080H
+0051 5003              JNC     $ + 5H
+0053 020000      R     LJMP    ?C0033
+                                           ; SOURCE LINE # 127
+0056 900000      R     MOV     DPTR,#BatteryCtrl+01H
+0059 E500        R     MOV     A,level
+005B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 128
+005C E0                MOVX    A,@DPTR
+005D FD                MOV     R5,A
+005E 7C00              MOV     R4,#00H
+0060 7F08              MOV     R7,#08H
+0062 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 129
+0065 900000      R     MOV     DPTR,#BatteryCtrl
+0068 7402              MOV     A,#02H
+006A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 130
+                                           ; SOURCE LINE # 131
+                                           ; SOURCE LINE # 132
+006B 22                RET     
+                                           ; SOURCE LINE # 133
+006C         ?C0040:
+                                           ; SOURCE LINE # 134
+006C 120000      E     LCALL   ReadChargeState
+006F 8F00        R     MOV     chargeing,R7
+                                           ; SOURCE LINE # 135
+0071 120000      R     LCALL   _ReadBatteryLevel
+0074 8F00        R     MOV     level,R7
+                                           ; SOURCE LINE # 136
+0076 E500        R     MOV     A,chargeing
+0078 602E              JZ      ?C0041
+                                           ; SOURCE LINE # 137
+007A 900000      R     MOV     DPTR,#BatteryCtrl+01H
+007D E0                MOVX    A,@DPTR
+007E FF                MOV     R7,A
+007F E500        R     MOV     A,level
+0081 D3                SETB    C
+0082 9F                SUBB    A,R7
+0083 401D              JC      ?C0042
+                                           ; SOURCE LINE # 138
+0085 A3                INC     DPTR
+0086 E0                MOVX    A,@DPTR
+0087 04                INC     A
+0088 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 139
+0089 E0                MOVX    A,@DPTR
+008A D3                SETB    C
+008B 9405              SUBB    A,#05H
+008D 7480              MOV     A,#080H
+008F 9480              SUBB    A,#080H
+0091 4041              JC      ?C0033
+                                           ; SOURCE LINE # 140
+0093 900000      R     MOV     DPTR,#BatteryCtrl+01H
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 10  
+
+0096 E500        R     MOV     A,level
+0098 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 141
+0099 FD                MOV     R5,A
+009A 7C00              MOV     R4,#00H
+009C 7F08              MOV     R7,#08H
+009E 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 142
+                                           ; SOURCE LINE # 143
+00A1 22                RET     
+00A2         ?C0042:
+                                           ; SOURCE LINE # 144
+00A2 E4                CLR     A
+00A3 900000      R     MOV     DPTR,#BatteryCtrl+02H
+00A6 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 145
+                                           ; SOURCE LINE # 146
+00A7 22                RET     
+00A8         ?C0041:
+                                           ; SOURCE LINE # 148
+                                           ; SOURCE LINE # 149
+00A8 900000      R     MOV     DPTR,#BatteryCtrl+01H
+00AB E0                MOVX    A,@DPTR
+00AC FF                MOV     R7,A
+00AD E500        R     MOV     A,level
+00AF C3                CLR     C
+00B0 9F                SUBB    A,R7
+00B1 501C              JNC     ?C0046
+                                           ; SOURCE LINE # 150
+00B3 A3                INC     DPTR
+00B4 E0                MOVX    A,@DPTR
+00B5 04                INC     A
+00B6 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 151
+00B7 E0                MOVX    A,@DPTR
+00B8 9464              SUBB    A,#064H
+00BA 7480              MOV     A,#080H
+00BC 9480              SUBB    A,#080H
+00BE 4014              JC      ?C0033
+                                           ; SOURCE LINE # 152
+00C0 900000      R     MOV     DPTR,#BatteryCtrl+01H
+00C3 E500        R     MOV     A,level
+00C5 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 153
+00C6 FD                MOV     R5,A
+00C7 7C00              MOV     R4,#00H
+00C9 7F08              MOV     R7,#08H
+00CB 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 154
+                                           ; SOURCE LINE # 155
+00CE 22                RET     
+00CF         ?C0046:
+                                           ; SOURCE LINE # 156
+00CF E4                CLR     A
+00D0 900000      R     MOV     DPTR,#BatteryCtrl+02H
+00D3 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 157
+                                           ; SOURCE LINE # 158
+                                           ; SOURCE LINE # 159
+                                           ; SOURCE LINE # 160
+                                           ; SOURCE LINE # 161
+                                           ; SOURCE LINE # 162
+C51 COMPILER V9.59.0.0   DRV_BATTERY                                                       06/28/2022 11:43:44 PAGE 11  
+
+                                           ; SOURCE LINE # 163
+00D4         ?C0033:
+00D4 22                RET     
+             ; FUNCTION drv_battery (END)
+
+             ; FUNCTION drv_battery_ini (BEGIN)
+                                           ; SOURCE LINE # 179
+                                           ; SOURCE LINE # 180
+0000 E4                CLR     A
+0001 900000      R     MOV     DPTR,#BatteryCtrl+02H
+0004 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 181
+0005 900000      R     MOV     DPTR,#BatteryCtrl
+0008 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 183
+0009 22                RET     
+             ; FUNCTION drv_battery_ini (END)
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    444    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      3    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1       4
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

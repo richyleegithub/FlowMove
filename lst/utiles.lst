@@ -1,0 +1,446 @@
+C51 COMPILER V9.59.0.0   UTILES                                                            06/28/2022 11:43:47 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE UTILES
+OBJECT MODULE PLACED IN .\out\utiles.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\utiles.c OPTIMIZE(7,SPEED) BROWSE NOAREGS INCDIR(.\inc) DEFINE(xLDO_
+                    -5V) DEBUG OBJECTEXTEND CODE PRINT(.\lst\utiles.lst) TABS(2) OBJECT(.\out\utiles.obj)
+
+line level    source
+
+   1          #include "utiles.h"
+   2          
+   3          REQUEST_QUEUE   xdata commandQueue;
+   4          CALLBACK_QUEUE  xdata callbackQueue;
+   5          
+   6          
+   7          /******************************************************************************************
+   8          *  FUNCTION NAME: LockStateInd
+   9          *  INPUTS:
+  10          *  OUTPUTS:
+  11          *  VALUE RETURNED:     void.
+  12          *  DESCRIPTION:      
+  13          *  CAUTIONS:    .
+  14          ******************************************************************************************
+  15          * MODIFICATION HISTORY:
+  16          * Date          Person                  Change
+  17          * ---------------------------------------------------------------------------------------
+  18          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  19          ******************************************************************************************/
+  20          void InitialQueue(void){
+  21   1        commandQueue.requestCnt=0;
+  22   1        commandQueue.requestIn=0;
+  23   1        commandQueue.requestOut=0;
+  24   1        
+  25   1        callbackQueue.requestCnt=0;
+  26   1        callbackQueue.requestIn=0;
+  27   1        callbackQueue.requestOut=0;
+  28   1      }
+  29          /******************************************************************************************
+  30          *  FUNCTION NAME: SendSysRuningParam
+  31          *  INPUTS:
+  32          *  OUTPUTS:
+  33          *  VALUE RETURNED:     void.
+  34          *  DESCRIPTION:      
+  35          *  CAUTIONS:    .
+  36          ******************************************************************************************
+  37          * MODIFICATION HISTORY:
+  38          * Date          Person                  Change
+  39          * ---------------------------------------------------------------------------------------
+  40          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  41          ******************************************************************************************/
+  42          
+  43          BOOL  SendQueueSysRuningParam(  uint8_t pressure, uint8_t temperature,   uint8_t battery  )
+  44          {
+  45   1        
+  46   1        if (commandQueue.requestCnt < MAX_CALLREQ_QUEUE)
+  47   1        {
+  48   2          commandQueue.requestCnt++;
+  49   2        commandQueue.requestQueue[commandQueue.requestIn].wBuf[0]=pressure;
+  50   2        commandQueue.requestQueue[commandQueue.requestIn].wBuf[1]=temperature;
+  51   2        commandQueue.requestQueue[commandQueue.requestIn].wBuf[2]=battery;
+  52   2        commandQueue.requestIn++;
+  53   2          if (commandQueue.requestIn >= MAX_CALLREQ_QUEUE)
+  54   2          {
+C51 COMPILER V9.59.0.0   UTILES                                                            06/28/2022 11:43:47 PAGE 2   
+
+  55   3            commandQueue.requestIn = 0;
+  56   3          }
+  57   2          return TRUE;
+  58   2        }
+  59   1        return FALSE;
+  60   1      }
+  61          /******************************************************************************************
+  62          *  FUNCTION NAME: PopCommandQueue
+  63          *  INPUTS:
+  64          *  OUTPUTS:
+  65          *  VALUE RETURNED:     void.
+  66          *  DESCRIPTION:      
+  67          *  CAUTIONS:    .
+  68          ******************************************************************************************
+  69          * MODIFICATION HISTORY:
+  70          * Date          Person                  Change
+  71          * ---------------------------------------------------------------------------------------
+  72          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  73          ******************************************************************************************/
+  74          void PopCommandQueue(void)
+  75          {
+  76   1        if (commandQueue.requestCnt)
+  77   1        {
+  78   2          commandQueue.requestCnt--;
+  79   2        commandQueue.requestOut++;
+  80   2          if (commandQueue.requestOut >= MAX_CALLBACK_QUEUE)
+  81   2          {
+  82   3            commandQueue.requestOut = 0;
+  83   3          }
+  84   2        }
+  85   1        else
+  86   1        {
+  87   2          commandQueue.requestOut = commandQueue.requestIn=0;
+  88   2        }
+  89   1      
+  90   1      }
+  91          
+  92          /******************************************************************************************
+  93          *  FUNCTION NAME: SendAppAck
+  94          *  INPUTS:
+  95          *  OUTPUTS:
+  96          *  VALUE RETURNED:     void.
+  97          *  DESCRIPTION:      
+  98          *  CAUTIONS:    .
+  99          ******************************************************************************************
+ 100          * MODIFICATION HISTORY:
+ 101          * Date          Person                  Change
+ 102          * ---------------------------------------------------------------------------------------
+ 103          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 104          ******************************************************************************************/
+ 105          
+ 106          BOOL  SendQueueAppAck( uint8_t cmd)
+ 107          {
+ 108   1        if (callbackQueue.requestCnt < MAX_CALLREQ_QUEUE)
+ 109   1        {
+ 110   2            callbackQueue.requestCnt++;
+ 111   2          callbackQueue.requestQueue[callbackQueue.requestIn].wCmd =cmd;
+ 112   2          callbackQueue.requestIn++;
+ 113   2            if(callbackQueue.requestIn>= MAX_CALLBACK_QUEUE)
+ 114   2            {
+ 115   3                callbackQueue.requestIn = 0;
+ 116   3            }
+C51 COMPILER V9.59.0.0   UTILES                                                            06/28/2022 11:43:47 PAGE 3   
+
+ 117   2            return TRUE;
+ 118   2        }
+ 119   1        return FALSE;
+ 120   1      }
+ 121          /******************************************************************************************
+ 122          *  FUNCTION NAME: PopNoneAckCmdQueue
+ 123          *  INPUTS:
+ 124          *  OUTPUTS:
+ 125          *  VALUE RETURNED:     void.
+ 126          *  DESCRIPTION:      
+ 127          *  CAUTIONS:    .
+ 128          ******************************************************************************************
+ 129          * MODIFICATION HISTORY:
+ 130          * Date          Person                  Change
+ 131          * ---------------------------------------------------------------------------------------
+ 132          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 133          ******************************************************************************************/
+ 134          void PopAckQueue(void)
+ 135          {
+ 136   1        if (callbackQueue.requestCnt)
+ 137   1        {
+ 138   2          callbackQueue.requestCnt--;
+ 139   2        callbackQueue.requestOut++;
+ 140   2          if(callbackQueue.requestOut >= MAX_CALLBACK_QUEUE)
+ 141   2          {
+ 142   3            callbackQueue.requestOut = 0;
+ 143   3          }
+ 144   2        }
+ 145   1        else
+ 146   1        {
+ 147   2          callbackQueue.requestOut = callbackQueue.requestIn=0;
+ 148   2        }
+ 149   1      
+ 150   1      }
+ 151          
+C51 COMPILER V9.59.0.0   UTILES                                                            06/28/2022 11:43:47 PAGE 4   
+
+ASSEMBLY LISTING OF GENERATED OBJECT CODE
+
+
+             ; FUNCTION InitialQueue (BEGIN)
+                                           ; SOURCE LINE # 20
+                                           ; SOURCE LINE # 21
+0000 E4                CLR     A
+0001 900000      R     MOV     DPTR,#commandQueue+02H
+0004 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 22
+0005 900000      R     MOV     DPTR,#commandQueue+01H
+0008 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 23
+0009 900000      R     MOV     DPTR,#commandQueue
+000C F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 25
+000D 900000      R     MOV     DPTR,#callbackQueue+02H
+0010 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 26
+0011 900000      R     MOV     DPTR,#callbackQueue+01H
+0014 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 27
+0015 900000      R     MOV     DPTR,#callbackQueue
+0018 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 28
+0019 22                RET     
+             ; FUNCTION InitialQueue (END)
+
+             ; FUNCTION _SendQueueSysRuningParam (BEGIN)
+                                           ; SOURCE LINE # 43
+;---- Variable 'pressure' assigned to Register 'R7' ----
+;---- Variable 'battery' assigned to Register 'R3' ----
+;---- Variable 'temperature' assigned to Register 'R5' ----
+                                           ; SOURCE LINE # 44
+                                           ; SOURCE LINE # 46
+0000 900000      R     MOV     DPTR,#commandQueue+02H
+0003 E0                MOVX    A,@DPTR
+0004 C3                CLR     C
+0005 9404              SUBB    A,#04H
+0007 7480              MOV     A,#080H
+0009 9480              SUBB    A,#080H
+000B 504C              JNC     ?C0002
+                                           ; SOURCE LINE # 47
+                                           ; SOURCE LINE # 48
+000D E0                MOVX    A,@DPTR
+000E 04                INC     A
+000F F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 49
+0010 900000      R     MOV     DPTR,#commandQueue+01H
+0013 E0                MOVX    A,@DPTR
+0014 FE                MOV     R6,A
+0015 75F003            MOV     B,#03H
+0018 A4                MUL     AB
+0019 2400        R     ADD     A,#LOW commandQueue+03H
+001B F582              MOV     DPL,A
+001D E4                CLR     A
+001E 3400        R     ADDC    A,#HIGH commandQueue+03H
+0020 F583              MOV     DPH,A
+0022 EF                MOV     A,R7
+0023 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 50
+0024 EE                MOV     A,R6
+C51 COMPILER V9.59.0.0   UTILES                                                            06/28/2022 11:43:47 PAGE 5   
+
+0025 75F003            MOV     B,#03H
+0028 A4                MUL     AB
+0029 2400        R     ADD     A,#LOW commandQueue+04H
+002B F582              MOV     DPL,A
+002D E4                CLR     A
+002E 3400        R     ADDC    A,#HIGH commandQueue+04H
+0030 F583              MOV     DPH,A
+0032 ED                MOV     A,R5
+0033 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 51
+0034 EE                MOV     A,R6
+0035 75F003            MOV     B,#03H
+0038 A4                MUL     AB
+0039 2400        R     ADD     A,#LOW commandQueue+05H
+003B F582              MOV     DPL,A
+003D E4                CLR     A
+003E 3400        R     ADDC    A,#HIGH commandQueue+05H
+0040 F583              MOV     DPH,A
+0042 EB                MOV     A,R3
+0043 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 52
+0044 900000      R     MOV     DPTR,#commandQueue+01H
+0047 E0                MOVX    A,@DPTR
+0048 04                INC     A
+0049 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 53
+004A E0                MOVX    A,@DPTR
+004B C3                CLR     C
+004C 9404              SUBB    A,#04H
+004E 7480              MOV     A,#080H
+0050 9480              SUBB    A,#080H
+0052 4002              JC      ?C0003
+                                           ; SOURCE LINE # 54
+                                           ; SOURCE LINE # 55
+0054 E4                CLR     A
+0055 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 56
+0056         ?C0003:
+                                           ; SOURCE LINE # 57
+0056 7F01              MOV     R7,#01H
+0058 22                RET     
+                                           ; SOURCE LINE # 58
+0059         ?C0002:
+                                           ; SOURCE LINE # 59
+0059 7F00              MOV     R7,#00H
+                                           ; SOURCE LINE # 60
+005B         ?C0004:
+005B 22                RET     
+             ; FUNCTION _SendQueueSysRuningParam (END)
+
+             ; FUNCTION PopCommandQueue (BEGIN)
+                                           ; SOURCE LINE # 74
+                                           ; SOURCE LINE # 75
+                                           ; SOURCE LINE # 76
+0000 900000      R     MOV     DPTR,#commandQueue+02H
+0003 E0                MOVX    A,@DPTR
+0004 6015              JZ      ?C0005
+                                           ; SOURCE LINE # 77
+                                           ; SOURCE LINE # 78
+0006 14                DEC     A
+0007 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 79
+C51 COMPILER V9.59.0.0   UTILES                                                            06/28/2022 11:43:47 PAGE 6   
+
+0008 900000      R     MOV     DPTR,#commandQueue
+000B E0                MOVX    A,@DPTR
+000C 04                INC     A
+000D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 80
+000E E0                MOVX    A,@DPTR
+000F C3                CLR     C
+0010 9404              SUBB    A,#04H
+0012 7480              MOV     A,#080H
+0014 9480              SUBB    A,#080H
+0016 400C              JC      ?C0008
+                                           ; SOURCE LINE # 81
+                                           ; SOURCE LINE # 82
+0018 E4                CLR     A
+0019 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 83
+                                           ; SOURCE LINE # 84
+001A 22                RET     
+001B         ?C0005:
+                                           ; SOURCE LINE # 86
+                                           ; SOURCE LINE # 87
+001B E4                CLR     A
+001C 900000      R     MOV     DPTR,#commandQueue+01H
+001F F0                MOVX    @DPTR,A
+0020 900000      R     MOV     DPTR,#commandQueue
+0023 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 88
+                                           ; SOURCE LINE # 90
+0024         ?C0008:
+0024 22                RET     
+             ; FUNCTION PopCommandQueue (END)
+
+             ; FUNCTION _SendQueueAppAck (BEGIN)
+                                           ; SOURCE LINE # 106
+;---- Variable 'cmd' assigned to Register 'R7' ----
+                                           ; SOURCE LINE # 107
+                                           ; SOURCE LINE # 108
+0000 900000      R     MOV     DPTR,#callbackQueue+02H
+0003 E0                MOVX    A,@DPTR
+0004 C3                CLR     C
+0005 9404              SUBB    A,#04H
+0007 7480              MOV     A,#080H
+0009 9480              SUBB    A,#080H
+000B 5027              JNC     ?C0009
+                                           ; SOURCE LINE # 109
+                                           ; SOURCE LINE # 110
+000D E0                MOVX    A,@DPTR
+000E 04                INC     A
+000F F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 111
+0010 900000      R     MOV     DPTR,#callbackQueue+01H
+0013 E0                MOVX    A,@DPTR
+0014 2400        R     ADD     A,#LOW callbackQueue+03H
+0016 F582              MOV     DPL,A
+0018 E4                CLR     A
+0019 3400        R     ADDC    A,#HIGH callbackQueue+03H
+001B F583              MOV     DPH,A
+001D EF                MOV     A,R7
+001E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 112
+001F 900000      R     MOV     DPTR,#callbackQueue+01H
+0022 E0                MOVX    A,@DPTR
+C51 COMPILER V9.59.0.0   UTILES                                                            06/28/2022 11:43:47 PAGE 7   
+
+0023 04                INC     A
+0024 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 113
+0025 E0                MOVX    A,@DPTR
+0026 C3                CLR     C
+0027 9404              SUBB    A,#04H
+0029 7480              MOV     A,#080H
+002B 9480              SUBB    A,#080H
+002D 4002              JC      ?C0010
+                                           ; SOURCE LINE # 114
+                                           ; SOURCE LINE # 115
+002F E4                CLR     A
+0030 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 116
+0031         ?C0010:
+                                           ; SOURCE LINE # 117
+0031 7F01              MOV     R7,#01H
+0033 22                RET     
+                                           ; SOURCE LINE # 118
+0034         ?C0009:
+                                           ; SOURCE LINE # 119
+0034 7F00              MOV     R7,#00H
+                                           ; SOURCE LINE # 120
+0036         ?C0011:
+0036 22                RET     
+             ; FUNCTION _SendQueueAppAck (END)
+
+             ; FUNCTION PopAckQueue (BEGIN)
+                                           ; SOURCE LINE # 134
+                                           ; SOURCE LINE # 135
+                                           ; SOURCE LINE # 136
+0000 900000      R     MOV     DPTR,#callbackQueue+02H
+0003 E0                MOVX    A,@DPTR
+0004 6015              JZ      ?C0012
+                                           ; SOURCE LINE # 137
+                                           ; SOURCE LINE # 138
+0006 14                DEC     A
+0007 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 139
+0008 900000      R     MOV     DPTR,#callbackQueue
+000B E0                MOVX    A,@DPTR
+000C 04                INC     A
+000D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 140
+000E E0                MOVX    A,@DPTR
+000F C3                CLR     C
+0010 9404              SUBB    A,#04H
+0012 7480              MOV     A,#080H
+0014 9480              SUBB    A,#080H
+0016 400C              JC      ?C0015
+                                           ; SOURCE LINE # 141
+                                           ; SOURCE LINE # 142
+0018 E4                CLR     A
+0019 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 143
+                                           ; SOURCE LINE # 144
+001A 22                RET     
+001B         ?C0012:
+                                           ; SOURCE LINE # 146
+                                           ; SOURCE LINE # 147
+001B E4                CLR     A
+001C 900000      R     MOV     DPTR,#callbackQueue+01H
+C51 COMPILER V9.59.0.0   UTILES                                                            06/28/2022 11:43:47 PAGE 8   
+
+001F F0                MOVX    @DPTR,A
+0020 900000      R     MOV     DPTR,#callbackQueue
+0023 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 148
+                                           ; SOURCE LINE # 150
+0024         ?C0015:
+0024 22                RET     
+             ; FUNCTION PopAckQueue (END)
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    247    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     22    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

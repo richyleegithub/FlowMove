@@ -1,0 +1,10 @@
+---- breath_duty Matches (9 in 1 files) ----
+drv_led.c (D:\富乐科技\code\src) line 19 : uint16_t 	xdata breath_duty;
+drv_led_set_current_light_reset in drv_led.c (D:\富乐科技\code\src) : 	breath_duty=0;
+breath_duty_cal in drv_led.c (D:\富乐科技\code\src) : 		breath_duty+=100;
+breath_duty_cal in drv_led.c (D:\富乐科技\code\src) : 		if(breath_duty>=20000){
+breath_duty_cal in drv_led.c (D:\富乐科技\code\src) : 		if(breath_duty>=300){
+breath_duty_cal in drv_led.c (D:\富乐科技\code\src) : 			breath_duty-=100;
+breath_duty_cal in drv_led.c (D:\富乐科技\code\src) : 			breath_duty=200;
+drv_led in drv_led.c (D:\富乐科技\code\src) : 				drv_set_led_b_duty(breath_duty);
+drv_led in drv_led.c (D:\富乐科技\code\src) : 				drv_set_led_r_duty(breath_duty);

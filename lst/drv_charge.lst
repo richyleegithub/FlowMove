@@ -1,0 +1,414 @@
+C51 COMPILER V9.59.0.0   DRV_CHARGE                                                        06/28/2022 11:43:47 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE DRV_CHARGE
+OBJECT MODULE PLACED IN .\out\drv_charge.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\drv_charge.c OPTIMIZE(7,SPEED) BROWSE NOAREGS INCDIR(.\inc) DEFINE(x
+                    -LDO_5V) DEBUG OBJECTEXTEND CODE PRINT(.\lst\drv_charge.lst) TABS(2) OBJECT(.\out\drv_charge.obj)
+
+line level    source
+
+   1          
+   2          #include  "MC96FD316.h"
+   3          #include  "types.h"
+   4          #include  "sys_message.h"
+   5          #include  "drv_charge.h"
+   6          
+   7          #define DRV_CHARGE_TICK     50
+   8          #define DRV_CHARGE_DEBOUCE    (1500/DRV_CHARGE_TICK)
+   9          
+  10          #define DC_PORT         P1
+  11          #define DC_PIN          0X02
+  12          
+  13          uint8_t   drv_charge_tick;
+  14          
+  15          CHARGE_CTRL_t xdata chargeCtrl;
+  16          /******************************************************************************************
+  17          *  FUNCTION NAME: ReadChargeState
+  18          *  INPUTS:
+  19          *  OUTPUTS:
+  20          *  VALUE RETURNED:     void.
+  21          *  DESCRIPTION:      
+  22          *  CAUTIONS:    .
+  23          ******************************************************************************************
+  24          * MODIFICATION HISTORY:
+  25          * Date          Person                  Change
+  26          * ---------------------------------------------------------------------------------------
+  27          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  28          ******************************************************************************************/
+  29          
+  30          BOOL ReadChargeState(void){
+  31   1        return (chargeCtrl.state==ST_DC_IN);
+  32   1        
+  33   1      }
+  34          /******************************************************************************************
+  35          *  FUNCTION NAME: drv_battery
+  36          *  INPUTS:
+  37          *  OUTPUTS:
+  38          *  VALUE RETURNED:     void.
+  39          *  DESCRIPTION:      
+  40          *  CAUTIONS:    .
+  41          ******************************************************************************************
+  42          * MODIFICATION HISTORY:
+  43          * Date          Person                  Change
+  44          * ---------------------------------------------------------------------------------------
+  45          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  46          ******************************************************************************************/
+  47          
+  48          void  Drv_Charge(void){
+  49   1        if(drv_charge_tick<DRV_CHARGE_TICK) return;
+  50   1        drv_charge_tick++;
+  51   1        switch(chargeCtrl.state){
+  52   2        case  ST_CHARGE_IDLE:
+  53   2          chargeCtrl.debounce=0;  
+  54   2          if((DC_PORT&DC_PIN)==0){
+C51 COMPILER V9.59.0.0   DRV_CHARGE                                                        06/28/2022 11:43:47 PAGE 2   
+
+  55   3            
+  56   3            chargeCtrl.state=ST_DC_IN_DEBOUNCE;
+  57   3          }else{
+  58   3            chargeCtrl.state=ST_DC_OUT_DEBOUNCE;
+  59   3          }
+  60   2          break;
+  61   2        case  ST_DC_OUT_DEBOUNCE:
+  62   2          if((DC_PORT&DC_PIN)==0){
+  63   3            chargeCtrl.debounce=0;
+  64   3            chargeCtrl.state=ST_DC_IN_DEBOUNCE;
+  65   3          }
+  66   2          else
+  67   2          {
+  68   3            chargeCtrl.debounce++;
+  69   3            if(chargeCtrl.debounce>=DRV_CHARGE_DEBOUCE){
+  70   4              chargeCtrl.debounce=0;
+  71   4              put_message(MSG_DISCHARGE_IND, 0);
+  72   4              chargeCtrl.state=ST_DC_OUT;
+  73   4            }
+  74   3          }
+  75   2          break;
+  76   2        case ST_DC_OUT:
+  77   2          if((DC_PORT&DC_PIN)==0){
+  78   3            chargeCtrl.debounce=0;
+  79   3            chargeCtrl.state=ST_DC_IN_DEBOUNCE;
+  80   3          }
+  81   2          break;
+  82   2        case ST_DC_IN_DEBOUNCE:
+  83   2          if((DC_PORT&DC_PIN)==0){
+  84   3            chargeCtrl.debounce++;
+  85   3            if(chargeCtrl.debounce>=DRV_CHARGE_DEBOUCE){
+  86   4              chargeCtrl.debounce=0;
+  87   4              put_message(MSG_CHARGE_IND, 1);
+  88   4              chargeCtrl.state=ST_DC_IN;
+  89   4            }
+  90   3          }
+  91   2          else
+  92   2          {
+  93   3            chargeCtrl.debounce=0;
+  94   3            chargeCtrl.state=ST_DC_OUT_DEBOUNCE;
+  95   3          }
+  96   2          break;
+  97   2        case ST_DC_IN:
+  98   2          if((DC_PORT&DC_PIN)==DC_PIN){
+  99   3            chargeCtrl.debounce=0;
+ 100   3            chargeCtrl.state=ST_DC_OUT_DEBOUNCE;
+ 101   3          }
+ 102   2          break;
+ 103   2        default:
+ 104   2          break;
+ 105   2        }
+ 106   1      
+ 107   1      }
+ 108          /******************************************************************************************
+ 109          *  FUNCTION NAME: drv_battery
+ 110          *  INPUTS:
+ 111          *  OUTPUTS:
+ 112          *  VALUE RETURNED:     void.
+ 113          *  DESCRIPTION:      
+ 114          *  CAUTIONS:    .
+ 115          ******************************************************************************************
+ 116          * MODIFICATION HISTORY:
+C51 COMPILER V9.59.0.0   DRV_CHARGE                                                        06/28/2022 11:43:47 PAGE 3   
+
+ 117          * Date          Person                  Change
+ 118          * ---------------------------------------------------------------------------------------
+ 119          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 120          ******************************************************************************************/
+ 121          void drv_charge_ini(void){
+ 122   1      
+ 123   1          drv_charge_tick=0;
+ 124   1          chargeCtrl.debounce=0;  
+ 125   1          chargeCtrl.state=ST_CHARGE_IDLE;
+ 126   1      }
+ 127          
+C51 COMPILER V9.59.0.0   DRV_CHARGE                                                        06/28/2022 11:43:47 PAGE 4   
+
+ASSEMBLY LISTING OF GENERATED OBJECT CODE
+
+
+             ; FUNCTION ReadChargeState (BEGIN)
+                                           ; SOURCE LINE # 30
+                                           ; SOURCE LINE # 31
+0000 900000      R     MOV     DPTR,#chargeCtrl
+0003 E0                MOVX    A,@DPTR
+0004 6404              XRL     A,#04H
+0006 7004              JNZ     ?C0001
+0008 7F01              MOV     R7,#01H
+000A 8002              SJMP    ?C0002
+000C         ?C0001:
+000C 7F00              MOV     R7,#00H
+000E         ?C0002:
+                                           ; SOURCE LINE # 33
+000E 22                RET     
+             ; FUNCTION ReadChargeState (END)
+
+             ; FUNCTION Drv_Charge (BEGIN)
+                                           ; SOURCE LINE # 48
+                                           ; SOURCE LINE # 49
+0000 C3                CLR     C
+0001 E500        R     MOV     A,drv_charge_tick
+0003 9432              SUBB    A,#032H
+0005 7480              MOV     A,#080H
+0007 9480              SUBB    A,#080H
+0009 5003              JNC     $ + 5H
+000B 020000      R     LJMP    ?C0005
+                                           ; SOURCE LINE # 50
+000E 0500        R     INC     drv_charge_tick
+                                           ; SOURCE LINE # 51
+0010 900000      R     MOV     DPTR,#chargeCtrl
+0013 E0                MOVX    A,@DPTR
+0014 14                DEC     A
+0015 6031              JZ      ?C0010
+0017 14                DEC     A
+0018 6070              JZ      ?C0014
+001A 14                DEC     A
+001B 7003              JNZ     $ + 5H
+001D 020000      R     LJMP    ?C0016
+0020 14                DEC     A
+0021 7003              JNZ     $ + 5H
+0023 020000      R     LJMP    ?C0020
+0026 2404              ADD     A,#04H
+0028 6003              JZ      $ + 5H
+002A 020000      R     LJMP    ?C0005
+                                           ; SOURCE LINE # 52
+002D         ?C0007:
+                                           ; SOURCE LINE # 53
+002D E4                CLR     A
+002E 900000      R     MOV     DPTR,#chargeCtrl+02H
+0031 F0                MOVX    @DPTR,A
+0032 A3                INC     DPTR
+0033 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 54
+0034 E588              MOV     A,P1
+0036 5402              ANL     A,#02H
+0038 7007              JNZ     ?C0008
+                                           ; SOURCE LINE # 56
+003A 900000      R     MOV     DPTR,#chargeCtrl
+003D 7403              MOV     A,#03H
+C51 COMPILER V9.59.0.0   DRV_CHARGE                                                        06/28/2022 11:43:47 PAGE 5   
+
+003F F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 57
+0040 22                RET     
+0041         ?C0008:
+                                           ; SOURCE LINE # 58
+0041 900000      R     MOV     DPTR,#chargeCtrl
+0044 7401              MOV     A,#01H
+0046 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 59
+                                           ; SOURCE LINE # 60
+0047 22                RET     
+                                           ; SOURCE LINE # 61
+0048         ?C0010:
+                                           ; SOURCE LINE # 62
+0048 E588              MOV     A,P1
+004A 5402              ANL     A,#02H
+004C 700D              JNZ     ?C0011
+                                           ; SOURCE LINE # 63
+004E 900000      R     MOV     DPTR,#chargeCtrl+02H
+0051 F0                MOVX    @DPTR,A
+0052 A3                INC     DPTR
+0053 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 64
+0054 900000      R     MOV     DPTR,#chargeCtrl
+0057 7403              MOV     A,#03H
+0059 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 65
+005A 22                RET     
+005B         ?C0011:
+                                           ; SOURCE LINE # 67
+                                           ; SOURCE LINE # 68
+005B 900000      R     MOV     DPTR,#chargeCtrl+03H
+005E E0                MOVX    A,@DPTR
+005F 04                INC     A
+0060 F0                MOVX    @DPTR,A
+0061 7006              JNZ     ?C0024
+0063 900000      R     MOV     DPTR,#chargeCtrl+02H
+0066 E0                MOVX    A,@DPTR
+0067 04                INC     A
+0068 F0                MOVX    @DPTR,A
+0069         ?C0024:
+                                           ; SOURCE LINE # 69
+0069 C3                CLR     C
+006A 900000      R     MOV     DPTR,#chargeCtrl+03H
+006D E0                MOVX    A,@DPTR
+006E 941E              SUBB    A,#01EH
+0070 900000      R     MOV     DPTR,#chargeCtrl+02H
+0073 E0                MOVX    A,@DPTR
+0074 9400              SUBB    A,#00H
+0076 407B              JC      ?C0005
+                                           ; SOURCE LINE # 70
+0078 E4                CLR     A
+0079 F0                MOVX    @DPTR,A
+007A A3                INC     DPTR
+007B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 71
+007C FD                MOV     R5,A
+007D FC                MOV     R4,A
+007E 7F06              MOV     R7,#06H
+0080 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 72
+0083 900000      R     MOV     DPTR,#chargeCtrl
+C51 COMPILER V9.59.0.0   DRV_CHARGE                                                        06/28/2022 11:43:47 PAGE 6   
+
+0086 7402              MOV     A,#02H
+0088 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 73
+                                           ; SOURCE LINE # 74
+                                           ; SOURCE LINE # 75
+0089 22                RET     
+                                           ; SOURCE LINE # 76
+008A         ?C0014:
+                                           ; SOURCE LINE # 77
+008A E588              MOV     A,P1
+008C 5402              ANL     A,#02H
+008E 7063              JNZ     ?C0005
+                                           ; SOURCE LINE # 78
+0090 900000      R     MOV     DPTR,#chargeCtrl+02H
+0093 F0                MOVX    @DPTR,A
+0094 A3                INC     DPTR
+0095 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 79
+0096 900000      R     MOV     DPTR,#chargeCtrl
+0099 7403              MOV     A,#03H
+009B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 80
+                                           ; SOURCE LINE # 81
+009C 22                RET     
+                                           ; SOURCE LINE # 82
+009D         ?C0016:
+                                           ; SOURCE LINE # 83
+009D E588              MOV     A,P1
+009F 5402              ANL     A,#02H
+00A1 7030              JNZ     ?C0017
+                                           ; SOURCE LINE # 84
+00A3 900000      R     MOV     DPTR,#chargeCtrl+03H
+00A6 E0                MOVX    A,@DPTR
+00A7 04                INC     A
+00A8 F0                MOVX    @DPTR,A
+00A9 7006              JNZ     ?C0025
+00AB 900000      R     MOV     DPTR,#chargeCtrl+02H
+00AE E0                MOVX    A,@DPTR
+00AF 04                INC     A
+00B0 F0                MOVX    @DPTR,A
+00B1         ?C0025:
+                                           ; SOURCE LINE # 85
+00B1 C3                CLR     C
+00B2 900000      R     MOV     DPTR,#chargeCtrl+03H
+00B5 E0                MOVX    A,@DPTR
+00B6 941E              SUBB    A,#01EH
+00B8 900000      R     MOV     DPTR,#chargeCtrl+02H
+00BB E0                MOVX    A,@DPTR
+00BC 9400              SUBB    A,#00H
+00BE 4033              JC      ?C0005
+                                           ; SOURCE LINE # 86
+00C0 E4                CLR     A
+00C1 F0                MOVX    @DPTR,A
+00C2 A3                INC     DPTR
+00C3 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 87
+00C4 7D01              MOV     R5,#01H
+00C6 FC                MOV     R4,A
+00C7 7F05              MOV     R7,#05H
+00C9 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 88
+00CC 900000      R     MOV     DPTR,#chargeCtrl
+C51 COMPILER V9.59.0.0   DRV_CHARGE                                                        06/28/2022 11:43:47 PAGE 7   
+
+00CF 7404              MOV     A,#04H
+00D1 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 89
+                                           ; SOURCE LINE # 90
+00D2 22                RET     
+00D3         ?C0017:
+                                           ; SOURCE LINE # 92
+                                           ; SOURCE LINE # 93
+00D3 E4                CLR     A
+00D4 900000      R     MOV     DPTR,#chargeCtrl+02H
+00D7 F0                MOVX    @DPTR,A
+00D8 A3                INC     DPTR
+00D9 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 94
+00DA 900000      R     MOV     DPTR,#chargeCtrl
+00DD 04                INC     A
+00DE F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 95
+                                           ; SOURCE LINE # 96
+00DF 22                RET     
+                                           ; SOURCE LINE # 97
+00E0         ?C0020:
+                                           ; SOURCE LINE # 98
+00E0 E588              MOV     A,P1
+00E2 5402              ANL     A,#02H
+00E4 6402              XRL     A,#02H
+00E6 700B              JNZ     ?C0005
+                                           ; SOURCE LINE # 99
+00E8 900000      R     MOV     DPTR,#chargeCtrl+02H
+00EB F0                MOVX    @DPTR,A
+00EC A3                INC     DPTR
+00ED F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 100
+00EE 900000      R     MOV     DPTR,#chargeCtrl
+00F1 04                INC     A
+00F2 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 101
+                                           ; SOURCE LINE # 102
+                                           ; SOURCE LINE # 103
+                                           ; SOURCE LINE # 104
+                                           ; SOURCE LINE # 105
+                                           ; SOURCE LINE # 107
+00F3         ?C0005:
+00F3 22                RET     
+             ; FUNCTION Drv_Charge (END)
+
+             ; FUNCTION drv_charge_ini (BEGIN)
+                                           ; SOURCE LINE # 121
+                                           ; SOURCE LINE # 123
+0000 E4                CLR     A
+0001 F500        R     MOV     drv_charge_tick,A
+                                           ; SOURCE LINE # 124
+0003 900000      R     MOV     DPTR,#chargeCtrl+02H
+0006 F0                MOVX    @DPTR,A
+0007 A3                INC     DPTR
+0008 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 125
+0009 900000      R     MOV     DPTR,#chargeCtrl
+000C F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 126
+000D 22                RET     
+             ; FUNCTION drv_charge_ini (END)
+C51 COMPILER V9.59.0.0   DRV_CHARGE                                                        06/28/2022 11:43:47 PAGE 8   
+
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    273    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      4    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

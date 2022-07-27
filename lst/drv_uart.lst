@@ -1,0 +1,2007 @@
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE DRV_UART
+OBJECT MODULE PLACED IN .\out\drv_uart.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\drv_uart.c OPTIMIZE(7,SPEED) BROWSE NOAREGS INCDIR(.\inc) DEFINE(xLD
+                    -O_5V) DEBUG OBJECTEXTEND CODE PRINT(.\lst\drv_uart.lst) TABS(2) OBJECT(.\out\drv_uart.obj)
+
+line level    source
+
+   1          #include  "MC96FD316.h"
+   2          #include  "types.h"
+   3          #include  "drv_uart.h"
+   4          #include  "utiles.h"
+   5          #include  "ble_comm.h"
+   6          #include  "sys_message.h"
+   7          
+   8          #define     UART_TX_INT   0
+   9          
+  10          USART_FIFO_t    xdata  usart_fifo;
+  11          DRVUART_RX_t    xdata ComRxCtrl;
+  12          DRVUART_TX_t    xdata ComTxCtrl;
+  13          uint8_t       xdata commState;
+  14          uint8_t     xdata  comSubState;
+  15          uint8_t     xdata  rx_buf[2];
+  16          uint16_t      rx_timeout;
+  17          uint16_t      rx_byte_timeout;
+  18          uint8_t     xdata ConnectData[10];
+  19          code uint8_t  ConnectInd[10]="Connect:1";
+  20          code uint8_t  DisconnectInd[10]="Connect:0";
+  21          /*=========================================================
+  22          * FUNCTION NAME: drv_uart_ini
+  23          * input :        none
+  24          * Output:        none
+  25          * description:    
+  26          *********************************************************
+  27          author        release             date
+  28          *********************************************************
+  29          richy.lee     first release       2022/04/21
+  30          ===========================================================*/
+  31          
+  32          void drv_uart_ini(void){
+  33   1        usart_fifo.rd=0;
+  34   1        usart_fifo.wr=0;
+  35   1        commState=STATE_AT_MODE;
+  36   1        comSubState=COMMAND_AT_NONE;
+  37   1        InitialQueue();
+  38   1      
+  39   1      }
+  40          
+  41          void drv_at_mode(void){
+  42   1        comSubState=COMMAND_AT;
+  43   1      }
+  44          /*=========================================================
+  45          * FUNCTION NAME: drv_uart_ini
+  46          * input :        none
+  47          * Output:        none
+  48          * description:    
+  49          *********************************************************
+  50          author          release             date
+  51          *********************************************************
+  52          richy.lee       first release       2022/04/21
+  53          ===========================================================*/
+  54          
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 2   
+
+  55          #define drv_uart_put( chr)\
+  56                do{\
+  57                  usart_fifo.fifo[usart_fifo.wr]=chr;\
+  58                  usart_fifo.wr++;\
+  59                  if(usart_fifo.wr>=UART_FIFO_LENGTH){\
+  60                    usart_fifo.wr=0;\
+  61                  }\
+  62                }while(0)
+  63          
+  64          /*=========================================================
+  65          * FUNCTION NAME: drv_uart_get
+  66          * input :        none
+  67          * Output:        none
+  68          * description:    
+  69          *********************************************************
+  70          author          release             date
+  71          *********************************************************
+  72          richy.lee       first release       2022/04/21
+  73          ===========================================================*/
+  74          
+  75          BOOL drv_uart_get(uint8_t *chr){
+  76   1      BOOL ret=FALSE;
+  77   1        if(usart_fifo.rd!=usart_fifo.wr){
+  78   2          *chr=usart_fifo.fifo[usart_fifo.rd];
+  79   2          usart_fifo.rd++;
+  80   2          if(usart_fifo.rd>=UART_FIFO_LENGTH){
+  81   3            usart_fifo.rd=0;
+  82   3          }
+  83   2          ret=TRUE;
+  84   2        }
+  85   1        return ret;
+  86   1      }
+  87          /******************************************************************************************
+  88          *  FUNCTION NAME: INT_USI_Rx
+  89          *  INPUTS:
+  90          *  OUTPUTS:
+  91          *  VALUE RETURNED:     void.
+  92          *  DESCRIPTION:      
+  93          *  CAUTIONS:    .
+  94          ******************************************************************************************
+  95          * MODIFICATION HISTORY:
+  96          * Date          Person                  Change
+  97          * ---------------------------------------------------------------------------------------
+  98          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  99          ******************************************************************************************/
+ 100          
+ 101          void INT_USI_Rx() interrupt 9
+ 102          {
+ 103   1        uint8_t temp;
+ 104   1        temp=USIST1;
+ 105   1        if(temp & 0x20)
+ 106   1        {
+ 107   2          temp=USIDR;
+ 108   2          drv_uart_put(temp);
+ 109   2          
+ 110   2        }
+ 111   1      
+ 112   1      }
+ 113          /******************************************************************************************
+ 114          *  FUNCTION NAME: INT_USI_Rx
+ 115          *  INPUTS:
+ 116          *  OUTPUTS:
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 3   
+
+ 117          *  VALUE RETURNED:     void.
+ 118          *  DESCRIPTION:      
+ 119          *  CAUTIONS:    .
+ 120          ******************************************************************************************
+ 121          * MODIFICATION HISTORY:
+ 122          * Date          Person                  Change
+ 123          * ---------------------------------------------------------------------------------------
+ 124          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 125          ******************************************************************************************/
+ 126          
+ 127          void INT_USI_Tx() interrupt 10
+ 128          {
+ 129   1        if((USIST1 & 0x80)==0x80){
+ 130   2          if(ComTxCtrl.len>0){
+ 131   3            USIDR =  ComTxCtrl.buf[ComTxCtrl.index];
+ 132   3            ComTxCtrl.index++;
+ 133   3            ComTxCtrl.len--;
+ 134   3          }else{
+ 135   3            ComTxCtrl.state=UART_TX_IDLE;
+ 136   3          }
+ 137   2      
+ 138   2        }
+ 139   1      
+ 140   1      }
+ 141          
+ 142          
+ 143          
+ 144          /******************************************************************************************
+ 145          *  FUNCTION NAME: SendFrame
+ 146          *  INPUTS:
+ 147          *  OUTPUTS:
+ 148          *  VALUE RETURNED:     void.
+ 149          *  DESCRIPTION:      
+ 150          *  CAUTIONS:    .
+ 151          ******************************************************************************************
+ 152          * MODIFICATION HISTORY:
+ 153          * Date          Person                  Change
+ 154          * ---------------------------------------------------------------------------------------
+ 155          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 156          ******************************************************************************************/
+ 157          void drv_uart_tx(void){
+ 158   1        switch(ComTxCtrl.state){
+ 159   2        case UART_TX_START:
+ 160   2          ComTxCtrl.index=0;
+ 161   2          if((USIST1 & 0x80)==0x80){
+ 162   3            USIDR =  ComTxCtrl.buf[ComTxCtrl.index];
+ 163   3            ComTxCtrl.index++;
+ 164   3            ComTxCtrl.len--;
+ 165   3            ComTxCtrl.state=UART_TX_WAIT;
+ 166   3          }
+ 167   2          break;
+ 168   2        case UART_TX_WAIT:
+ 169   2          if((USIST1 & 0x80)==0x80){
+ 170   3            if(ComTxCtrl.len>0)
+ 171   3            {
+ 172   4      
+ 173   4              USIDR =  ComTxCtrl.buf[ComTxCtrl.index];
+ 174   4              ComTxCtrl.index++;
+ 175   4              ComTxCtrl.len--;
+ 176   4            }else{
+ 177   4              ComTxCtrl.state=UART_TX_IDLE;
+ 178   4            }
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 4   
+
+ 179   3          }
+ 180   2          break;
+ 181   2        default:
+ 182   2          break;
+ 183   2        }
+ 184   1      
+ 185   1      }
+ 186          #if UART_TX_INT   
+              
+              /******************************************************************************************
+              *  FUNCTION NAME: SendATcommad
+              *  INPUTS:
+              *  OUTPUTS:
+              *  VALUE RETURNED:     void.
+              *  DESCRIPTION:      
+              *  CAUTIONS:    .
+              ******************************************************************************************
+              * MODIFICATION HISTORY:
+              * Date          Person                  Change
+              * ---------------------------------------------------------------------------------------
+              * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+              ******************************************************************************************/
+              void Send_Start(void)
+              {
+                while(!(USIST1 & 0x80));  // wait
+                ComTxCtrl.index=0;
+                USIDR = ComTxCtrl.buf[ComTxCtrl.index];
+                ComTxCtrl.len--;
+              }
+              #endif
+ 209          
+ 210          
+ 211          /******************************************************************************************
+ 212          *  FUNCTION NAME: SendATcommad
+ 213          *  INPUTS:
+ 214          *  OUTPUTS:
+ 215          *  VALUE RETURNED:     void.
+ 216          *  DESCRIPTION:      
+ 217          *  CAUTIONS:    .
+ 218          ******************************************************************************************
+ 219          * MODIFICATION HISTORY:
+ 220          * Date          Person                  Change
+ 221          * ---------------------------------------------------------------------------------------
+ 222          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 223          ******************************************************************************************/
+ 224          void SendATcommad(void){
+ 225   1          ComTxCtrl.buf[0]='+';     //head
+ 226   1          ComTxCtrl.buf[1]='+';       //length is fix 2
+ 227   1          ComTxCtrl.buf[2]='+';     //cmd
+ 228   1          ComTxCtrl.len=3;
+ 229   1      #if UART_TX_INT   
+                  Send_Start();
+              #else
+ 232   1          ComTxCtrl.state=UART_TX_START;
+ 233   1      #endif
+ 234   1      
+ 235   1      }
+ 236          
+ 237          
+ 238          /******************************************************************************************
+ 239          *  FUNCTION NAME: SendATNameChange
+ 240          *  INPUTS:
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 5   
+
+ 241          *  OUTPUTS:
+ 242          *  VALUE RETURNED:     void.
+ 243          *  DESCRIPTION:      
+ 244          *  CAUTIONS:    .
+ 245          ******************************************************************************************
+ 246          * MODIFICATION HISTORY:
+ 247          * Date          Person                  Change
+ 248          * ---------------------------------------------------------------------------------------
+ 249          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 250          ******************************************************************************************/
+ 251          void SendATNameChange(void){
+ 252   1          ComTxCtrl.buf[0]='A';     //head
+ 253   1          ComTxCtrl.buf[1]='T';       //length is fix 2
+ 254   1          ComTxCtrl.buf[2]='+';     //cmd
+ 255   1          ComTxCtrl.buf[3]='s';
+ 256   1          ComTxCtrl.buf[4]='e';
+ 257   1          ComTxCtrl.buf[5]='t';
+ 258   1          ComTxCtrl.buf[6]='N';
+ 259   1          ComTxCtrl.buf[7]='a';
+ 260   1          ComTxCtrl.buf[8]='m';
+ 261   1          ComTxCtrl.buf[9]='e';
+ 262   1          ComTxCtrl.buf[10]='=';
+ 263   1          ComTxCtrl.buf[11]='F';
+ 264   1          ComTxCtrl.buf[12]='l';
+ 265   1          ComTxCtrl.buf[13]='o';
+ 266   1          ComTxCtrl.buf[14]='w';
+ 267   1          ComTxCtrl.buf[15]='M';
+ 268   1          ComTxCtrl.buf[16]='o';
+ 269   1          ComTxCtrl.buf[17]='v';
+ 270   1          ComTxCtrl.buf[18]='e';
+ 271   1          ComTxCtrl.buf[19]='\r';
+ 272   1          ComTxCtrl.buf[20]='\n';
+ 273   1          ComTxCtrl.len=21;
+ 274   1      #if UART_TX_INT   
+                  Send_Start();
+              #else   
+ 277   1          ComTxCtrl.state=UART_TX_START;
+ 278   1      #endif
+ 279   1      
+ 280   1      }
+ 281          /******************************************************************************************
+ 282          *  FUNCTION NAME: SendATexit
+ 283          *  INPUTS:
+ 284          *  OUTPUTS:
+ 285          *  VALUE RETURNED:     void.
+ 286          *  DESCRIPTION:      
+ 287          *  CAUTIONS:    .
+ 288          ******************************************************************************************
+ 289          * MODIFICATION HISTORY:
+ 290          * Date          Person                  Change
+ 291          * ---------------------------------------------------------------------------------------
+ 292          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 293          ******************************************************************************************/
+ 294          void SendATexit(void){
+ 295   1          ComTxCtrl.buf[0]='A';     //head
+ 296   1          ComTxCtrl.buf[1]='T';       //length is fix 2
+ 297   1          ComTxCtrl.buf[2]='+';     //cmd
+ 298   1          ComTxCtrl.buf[3]='e';
+ 299   1          ComTxCtrl.buf[4]='x';
+ 300   1          ComTxCtrl.buf[5]='i';
+ 301   1          ComTxCtrl.buf[6]='t';
+ 302   1          ComTxCtrl.buf[7]='\r';
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 6   
+
+ 303   1          ComTxCtrl.buf[8]='\d';
+ 304   1          ComTxCtrl.len=9;
+ 305   1      #if UART_TX_INT   
+                      Send_Start();
+              #else
+ 308   1          ComTxCtrl.state=UART_TX_START;
+ 309   1      #endif
+ 310   1      
+ 311   1      }
+ 312          
+ 313          /******************************************************************************************
+ 314          *  FUNCTION NAME: SendAckFrame
+ 315          *  INPUTS:
+ 316          *  OUTPUTS:
+ 317          *  VALUE RETURNED:     void.
+ 318          *  DESCRIPTION:      
+ 319          *  CAUTIONS:    .
+ 320          ******************************************************************************************
+ 321          * MODIFICATION HISTORY:
+ 322          * Date          Person                  Change
+ 323          * ---------------------------------------------------------------------------------------
+ 324          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 325          ******************************************************************************************/
+ 326          void SendAckFrame(  uint8_t    cmd) {
+ 327   1      
+ 328   1          ComTxCtrl.buf[0]=0x9a;    //head
+ 329   1          ComTxCtrl.buf[1]=1;       //length is fix 2
+ 330   1          ComTxCtrl.buf[2]=cmd;     //cmd
+ 331   1          ComTxCtrl.buf[3]=(SOF+ ComTxCtrl.buf[1]+cmd); //
+ 332   1          ComTxCtrl.len=4;
+ 333   1      #if UART_TX_INT   
+                  Send_Start();
+              #else
+ 336   1          ComTxCtrl.state=UART_TX_START;
+ 337   1      #endif
+ 338   1      
+ 339   1      }
+ 340          
+ 341          /******************************************************************************************
+ 342          *  FUNCTION NAME: SendNoticeFrame
+ 343          *  INPUTS:
+ 344          *  OUTPUTS:
+ 345          *  VALUE RETURNED:     void.
+ 346          *  DESCRIPTION:      
+ 347          *  CAUTIONS:    .
+ 348          ******************************************************************************************
+ 349          * MODIFICATION HISTORY:
+ 350          * Date          Person                  Change
+ 351          * ---------------------------------------------------------------------------------------
+ 352          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 353          ******************************************************************************************/
+ 354          void SendNoticeFrame(  uint8_t    pressure,uint8_t temperature,uint8_t battery)  
+ 355          {
+ 356   1      
+ 357   1          ComTxCtrl.buf[0]=SOF;     //head
+ 358   1          ComTxCtrl.buf[1]=0x05;      //length is fix 5
+ 359   1          ComTxCtrl.buf[2]=0x85;    //cmd
+ 360   1          ComTxCtrl.buf[3]=pressure;
+ 361   1          ComTxCtrl.buf[4]=temperature;
+ 362   1          ComTxCtrl.buf[5]=battery;
+ 363   1          ComTxCtrl.buf[6]=(SOF+5+0x85+pressure+temperature+battery); //
+ 364   1          ComTxCtrl.len=7;
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 7   
+
+ 365   1      #if UART_TX_INT   
+                  Send_Start();
+              #else
+ 368   1        ComTxCtrl.state=UART_TX_START;
+ 369   1      #endif
+ 370   1      
+ 371   1      
+ 372   1      
+ 373   1          
+ 374   1      }
+ 375          
+ 376          
+ 377          /******************************************************************************************
+ 378          *  FUNCTION NAME: IsTxComplete
+ 379          *  INPUTS:
+ 380          *  OUTPUTS:
+ 381          *  VALUE RETURNED:     void.
+ 382          *  DESCRIPTION:      
+ 383          *  CAUTIONS:    .
+ 384          ******************************************************************************************
+ 385          * MODIFICATION HISTORY:
+ 386          * Date          Person                  Change
+ 387          * ---------------------------------------------------------------------------------------
+ 388          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 389          ******************************************************************************************/
+ 390          BOOL   IsTxComplete(void){
+ 391   1      
+ 392   1        return (ComTxCtrl.state==UART_TX_IDLE);
+ 393   1      }
+ 394          
+ 395          
+ 396          
+ 397          /******************************************************************************************
+ 398          *  FUNCTION NAME: ReceiveUartAtOk
+ 399          *  INPUTS:  BOOL
+ 400          *  OUTPUTS: eUartStatus_t
+ 401          *  VALUE RETURNED:     void.
+ 402          *  DESCRIPTION:      
+ 403          *  CAUTIONS:    .
+ 404          ******************************************************************************************
+ 405          * MODIFICATION HISTORY:
+ 406          * Date          Person                  Change
+ 407          * ---------------------------------------------------------------------------------------
+ 408          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 409          ******************************************************************************************/
+ 410          eUartStatus_t    ReceiveUartAtOk( void ){
+ 411   1      uint8_t  chr;
+ 412   1      eUartStatus_t retVal = UART_NONE;
+ 413   1      
+ 414   1          while (drv_uart_get(&chr)){
+ 415   2            
+ 416   2              //USIDR=chr;
+ 417   2      
+ 418   2            rx_buf[0]=rx_buf[1];
+ 419   2            rx_buf[1]=chr;
+ 420   2            if((rx_buf[0]=='o')&&(rx_buf[1]=='k')){
+ 421   3              retVal = UART_FRAME_RECEIVED;
+ 422   3              break;
+ 423   3            }
+ 424   2          }
+ 425   1          return retVal;
+ 426   1      }
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 8   
+
+ 427          /******************************************************************************************
+ 428          *  FUNCTION NAME: ReceiveUartFrame
+ 429          *  INPUTS:  BOOL
+ 430          *  OUTPUTS: eUartStatus_t
+ 431          *  VALUE RETURNED:     void.
+ 432          *  DESCRIPTION:      
+ 433          *  CAUTIONS:    .
+ 434          ******************************************************************************************
+ 435          * MODIFICATION HISTORY:
+ 436          * Date          Person                  Change
+ 437          * ---------------------------------------------------------------------------------------
+ 438          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 439          ******************************************************************************************/
+ 440          eUartStatus_t    ReceiveUartFrame( void ) {
+ 441   1      uint8_t  chr;
+ 442   1      uint8_t  i;
+ 443   1      eUartStatus_t retVal = UART_NONE;
+ 444   1        
+ 445   1          while (drv_uart_get(&chr))
+ 446   1          {
+ 447   2              for(i=1;i<9;i++){
+ 448   3                ConnectData[i-1]=ConnectData[i];
+ 449   3              }
+ 450   2            ConnectData[8]=chr;
+ 451   2            
+ 452   2            for(i=0;i<9;i++){
+ 453   3              if(ConnectData[i]!=DisconnectInd[i]){
+ 454   4                break;
+ 455   4              }
+ 456   3            }
+ 457   2            if(i==9){
+ 458   3              put_message(MSG_BLE_DISCONNECT_IND,0);
+ 459   3            }
+ 460   2              
+ 461   2      
+ 462   2      
+ 463   2              switch (ComRxCtrl.state)
+ 464   2              {
+ 465   3                case REC_SOF :
+ 466   3                  if (chr == SOF)
+ 467   3                  {
+ 468   4                rx_byte_timeout=0;
+ 469   4                ComRxCtrl.rxActive=1;
+ 470   4                ComRxCtrl.index=0;
+ 471   4      
+ 472   4                ComRxCtrl.buf[ComRxCtrl.index] = SOF;
+ 473   4                ComRxCtrl.index++;
+ 474   4                
+ 475   4                ComRxCtrl.bChecksum = SOF;
+ 476   4                      ComRxCtrl.state=REC_LEN;
+ 477   4                  }
+ 478   3                  break;
+ 479   3      
+ 480   3                case REC_LEN :
+ 481   3                  if ((chr < FRAME_DATA_MIN_LENGTH) || (chr > FRAME_DATA_MAX_LENGTH))
+ 482   3                  {
+ 483   4                    ComRxCtrl.rxActive=0;
+ 484   4                    ComRxCtrl.state = REC_SOF; // Restart looking for SOF
+ 485   4                    
+ 486   4                  }
+ 487   3              else
+ 488   3              {
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 9   
+
+ 489   4              ComRxCtrl.len=chr;
+ 490   4                ComRxCtrl.buf[ComRxCtrl.index] = chr;
+ 491   4              ComRxCtrl.index++;
+ 492   4              
+ 493   4              ComRxCtrl.bChecksum += chr;
+ 494   4                ComRxCtrl.state=REC_DATA;
+ 495   4                  }
+ 496   3              break;
+ 497   3      
+ 498   3                case REC_DATA :
+ 499   3      
+ 500   3                    ComRxCtrl.buf[ComRxCtrl.index] = chr;
+ 501   3                    ComRxCtrl.index++;
+ 502   3              ComRxCtrl.len--;
+ 503   3              ComRxCtrl.bChecksum += chr;
+ 504   3      
+ 505   3                    if (ComRxCtrl.len==0)
+ 506   3                    {
+ 507   4                        ComRxCtrl.state=REC_CHKSUM;
+ 508   4                    }
+ 509   3              
+ 510   3      
+ 511   3             
+ 512   3                  break;
+ 513   3      
+ 514   3                case REC_CHKSUM :
+ 515   3      
+ 516   3             
+ 517   3                  if (chr == ComRxCtrl.bChecksum)
+ 518   3                  {
+ 519   4                      retVal = UART_FRAME_RECEIVED;  // Tell THE world that we got a packet
+ 520   4                  }
+ 521   3                  else
+ 522   3                  {
+ 523   4                      retVal = UART_FRAME_ERR;
+ 524   4                  }
+ 525   3                  default :
+ 526   3                    ComRxCtrl.rxActive=0;
+ 527   3                  ComRxCtrl.state = REC_SOF; // Restart looking for SOF
+ 528   3                  break;
+ 529   3              }
+ 530   2          } 
+ 531   1      
+ 532   1         
+ 533   1          /* Check for timeouts - if no other events detected */
+ 534   1          if (retVal == UART_NONE)
+ 535   1          {
+ 536   2            /* Are we in the middle of collecting a frame and have we timed out? */
+ 537   2            if ((ComRxCtrl.rxActive==1) 
+ 538   2            && (  rx_byte_timeout>=1000))
+ 539   2            {
+ 540   3                /* Reset to SOF hunting */
+ 541   3                ComRxCtrl.state = REC_SOF;
+ 542   3                ComRxCtrl.rxActive = 0; /* Not inframe anymore */
+ 543   3                retVal = UART_RECEIVE_TIMEOUT;
+ 544   3            }
+ 545   2          }
+ 546   1          return retVal;
+ 547   1      }
+ 548          /*=======================================================================
+ 549          * FUNCTION NAME: drv_uart
+ 550          * input :        none
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 10  
+
+ 551          * Output:        none
+ 552          * description:    
+ 553          ************************************************************************
+ 554          author          release           date
+ 555          ************************************************************************
+ 556          richy.lee       first release     2022/04/21
+ 557          =========================================================================*/
+ 558          
+ 559          
+ 560          /*=======================================================================
+ 561          * FUNCTION NAME: drv_uart
+ 562          * input :        none
+ 563          * Output:        none
+ 564          * description:    
+ 565          ************************************************************************
+ 566          author          release           date
+ 567          ************************************************************************
+ 568          richy.lee       first release     2022/04/21
+ 569          =========================================================================*/
+ 570          void drv_comm(void){
+ 571   1      
+ 572   1       switch (commState){
+ 573   2        case STATE_AT_MODE:
+ 574   2            switch(comSubState){
+ 575   3          case   COMMAND_AT_NONE:
+ 576   3            rx_timeout=0;
+ 577   3              break;
+ 578   3          case  COMMAND_AT:
+ 579   3            if(rx_timeout>=1000){
+ 580   4              SendATcommad();
+ 581   4              rx_timeout=0;
+ 582   4              comSubState=COMMAND_AT_WAIT;
+ 583   4            }
+ 584   3            break;
+ 585   3          case COMMAND_AT_WAIT:
+ 586   3            if( ReceiveUartAtOk()==UART_FRAME_RECEIVED){
+ 587   4              SendATNameChange();
+ 588   4              rx_timeout=0;
+ 589   4              comSubState=COMMAND_CHANGE_NAME_WAIT;
+ 590   4            }else{
+ 591   4              if(rx_timeout>=1000){
+ 592   5                rx_timeout=0;
+ 593   5                SendATexit();
+ 594   5                comSubState=COMMAND_EIXT_AT_WAIT;
+ 595   5              }
+ 596   4            }
+ 597   3            break;
+ 598   3          case COMMAND_CHANGE_NAME_WAIT:
+ 599   3            if( ReceiveUartAtOk()==UART_FRAME_RECEIVED){
+ 600   4              rx_timeout=0;
+ 601   4              SendATexit();
+ 602   4               comSubState=COMMAND_EIXT_AT_WAIT;
+ 603   4            }else{
+ 604   4              if(rx_timeout>=1000){
+ 605   5                SendATexit();
+ 606   5                rx_timeout=0;
+ 607   5                comSubState=COMMAND_EIXT_AT_WAIT;
+ 608   5              }
+ 609   4            }
+ 610   3            break;
+ 611   3          case COMMAND_EIXT_AT_WAIT:
+ 612   3            if( ReceiveUartAtOk()==UART_FRAME_RECEIVED){
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 11  
+
+ 613   4              commState=STATE_IDLE;
+ 614   4            }else{
+ 615   4            
+ 616   4              if(rx_timeout>=1000){
+ 617   5                commState=STATE_IDLE;
+ 618   5              }
+ 619   4            }
+ 620   3            break;
+ 621   3          default:
+ 622   3            break;
+ 623   3            }
+ 624   2      
+ 625   2      
+ 626   2          break;
+ 627   2         case STATE_IDLE:
+ 628   2           if(callbackQueue.requestCnt){
+ 629   3             // 应答发送，优先级比较高。
+ 630   3             if(ComTxCtrl.state==UART_TX_IDLE){
+ 631   4               SendAckFrame(  callbackQueue.requestQueue[callbackQueue.requestOut].wCmd);
+ 632   4               commState=STATE_COMMAND_ACK_TX;
+ 633   4              }
+ 634   3      
+ 635   3           }else if (commandQueue.requestCnt){
+ 636   3             // 普通命令发送。
+ 637   3               if(ComTxCtrl.state==UART_TX_IDLE){
+ 638   4              SendNoticeFrame(  commandQueue.requestQueue[commandQueue.requestOut].wBuf[0],\
+ 639   4                        commandQueue.requestQueue[commandQueue.requestOut].wBuf[1],\
+ 640   4                        commandQueue.requestQueue[commandQueue.requestOut].wBuf[2]  );
+ 641   4              commState=STATE_COMMAND_TX;
+ 642   4               }
+ 643   3           
+ 644   3           }
+ 645   2           else
+ 646   2           {
+ 647   3           /* Nothing to transmit. Check if we received anything */
+ 648   3           if (ReceiveUartFrame() == UART_FRAME_RECEIVED)
+ 649   3           {
+ 650   4                AppCommandParse(&ComRxCtrl.buf[FRAM_CMD_INDEX]);
+ 651   4           }
+ 652   3           }
+ 653   2       
+ 654   2         break;
+ 655   2         case STATE_COMMAND_ACK_TX:
+ 656   2           if(IsTxComplete()){
+ 657   3             PopAckQueue();// 发送结束，清除队列里面的ACK 命令
+ 658   3             commState=STATE_IDLE;
+ 659   3           }
+ 660   2            break;
+ 661   2         case STATE_COMMAND_TX:
+ 662   2           if(IsTxComplete()){
+ 663   3            PopCommandQueue();// 发送结束，清除队列里面的命令
+ 664   3            commState=STATE_IDLE;
+ 665   3          }
+ 666   2         break;
+ 667   2         default:
+ 668   2         commState=STATE_IDLE;
+ 669   2         break;
+ 670   2       }
+ 671   1      
+ 672   1      }
+ 673          
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 12  
+
+ASSEMBLY LISTING OF GENERATED OBJECT CODE
+
+
+             ; FUNCTION drv_uart_ini (BEGIN)
+                                           ; SOURCE LINE # 32
+                                           ; SOURCE LINE # 33
+0000 E4                CLR     A
+0001 900000      R     MOV     DPTR,#usart_fifo
+0004 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 34
+0005 A3                INC     DPTR
+0006 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 35
+0007 900000      R     MOV     DPTR,#commState
+000A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 36
+000B 900000      R     MOV     DPTR,#comSubState
+000E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 37
+000F 120000      E     LCALL   InitialQueue
+                                           ; SOURCE LINE # 39
+0012 22                RET     
+             ; FUNCTION drv_uart_ini (END)
+
+             ; FUNCTION drv_at_mode (BEGIN)
+                                           ; SOURCE LINE # 41
+                                           ; SOURCE LINE # 42
+0000 900000      R     MOV     DPTR,#comSubState
+0003 7401              MOV     A,#01H
+0005 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 43
+0006 22                RET     
+             ; FUNCTION drv_at_mode (END)
+
+             ; FUNCTION _drv_uart_get (BEGIN)
+                                           ; SOURCE LINE # 75
+;---- Variable 'chr' assigned to Register 'R1/R2/R3' ----
+                                           ; SOURCE LINE # 76
+;---- Variable 'ret' assigned to Register 'R7' ----
+0000 E4                CLR     A
+0001 FF                MOV     R7,A
+                                           ; SOURCE LINE # 77
+0002 900000      R     MOV     DPTR,#usart_fifo+01H
+0005 E0                MOVX    A,@DPTR
+0006 FE                MOV     R6,A
+0007 900000      R     MOV     DPTR,#usart_fifo
+000A E0                MOVX    A,@DPTR
+000B FD                MOV     R5,A
+000C 6E                XRL     A,R6
+000D 6022              JZ      ?C0003
+                                           ; SOURCE LINE # 78
+000F 7400        R     MOV     A,#LOW usart_fifo+02H
+0011 2D                ADD     A,R5
+0012 F582              MOV     DPL,A
+0014 E4                CLR     A
+0015 3400        R     ADDC    A,#HIGH usart_fifo+02H
+0017 F583              MOV     DPH,A
+0019 E0                MOVX    A,@DPTR
+001A 120000      E     LCALL   ?C?CSTPTR
+                                           ; SOURCE LINE # 79
+001D 900000      R     MOV     DPTR,#usart_fifo
+0020 E0                MOVX    A,@DPTR
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 13  
+
+0021 04                INC     A
+0022 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 80
+0023 E0                MOVX    A,@DPTR
+0024 C3                CLR     C
+0025 9410              SUBB    A,#010H
+0027 7480              MOV     A,#080H
+0029 9480              SUBB    A,#080H
+002B 4002              JC      ?C0004
+                                           ; SOURCE LINE # 81
+002D E4                CLR     A
+002E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 82
+002F         ?C0004:
+                                           ; SOURCE LINE # 83
+002F 7F01              MOV     R7,#01H
+                                           ; SOURCE LINE # 84
+0031         ?C0003:
+                                           ; SOURCE LINE # 85
+                                           ; SOURCE LINE # 86
+0031 22                RET     
+             ; FUNCTION _drv_uart_get (END)
+
+             ; FUNCTION INT_USI_Rx (BEGIN)
+0000 C0E0              PUSH    ACC
+0002 C083              PUSH    DPH
+0004 C082              PUSH    DPL
+0006 C0D0              PUSH    PSW
+0008 EF                MOV     A,R7
+0009 C0E0              PUSH    ACC
+                                           ; SOURCE LINE # 101
+                                           ; SOURCE LINE # 104
+;---- Variable 'temp' assigned to Register 'R7' ----
+000B AFE1              MOV     R7,USIST1
+                                           ; SOURCE LINE # 105
+000D EF                MOV     A,R7
+000E 30E523            JNB     ACC.5,?C0011
+                                           ; SOURCE LINE # 106
+                                           ; SOURCE LINE # 107
+0011 AFE5              MOV     R7,USIDR
+                                           ; SOURCE LINE # 108
+0013 900000      R     MOV     DPTR,#usart_fifo+01H
+0016 E0                MOVX    A,@DPTR
+0017 2400        R     ADD     A,#LOW usart_fifo+02H
+0019 F582              MOV     DPL,A
+001B E4                CLR     A
+001C 3400        R     ADDC    A,#HIGH usart_fifo+02H
+001E F583              MOV     DPH,A
+0020 EF                MOV     A,R7
+0021 F0                MOVX    @DPTR,A
+0022 900000      R     MOV     DPTR,#usart_fifo+01H
+0025 E0                MOVX    A,@DPTR
+0026 04                INC     A
+0027 F0                MOVX    @DPTR,A
+0028 E0                MOVX    A,@DPTR
+0029 C3                CLR     C
+002A 9410              SUBB    A,#010H
+002C 7480              MOV     A,#080H
+002E 9480              SUBB    A,#080H
+0030 4002              JC      ?C0011
+0032 E4                CLR     A
+0033 F0                MOVX    @DPTR,A
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 14  
+
+                                           ; SOURCE LINE # 110
+                                           ; SOURCE LINE # 112
+0034         ?C0011:
+0034 D0E0              POP     ACC
+0036 FF                MOV     R7,A
+0037 D0D0              POP     PSW
+0039 D082              POP     DPL
+003B D083              POP     DPH
+003D D0E0              POP     ACC
+003F 32                RETI    
+             ; FUNCTION INT_USI_Rx (END)
+
+             ; FUNCTION INT_USI_Tx (BEGIN)
+0000 C0E0              PUSH    ACC
+0002 C083              PUSH    DPH
+0004 C082              PUSH    DPL
+0006 C0D0              PUSH    PSW
+                                           ; SOURCE LINE # 127
+                                           ; SOURCE LINE # 129
+0008 E5E1              MOV     A,USIST1
+000A 5480              ANL     A,#080H
+000C 6480              XRL     A,#080H
+000E 702E              JNZ     ?C0015
+                                           ; SOURCE LINE # 130
+0010 900000      R     MOV     DPTR,#ComTxCtrl+03H
+0013 E0                MOVX    A,@DPTR
+0014 D3                SETB    C
+0015 9400              SUBB    A,#00H
+0017 7480              MOV     A,#080H
+0019 9480              SUBB    A,#080H
+001B 401C              JC      ?C0013
+                                           ; SOURCE LINE # 131
+001D 900000      R     MOV     DPTR,#ComTxCtrl+02H
+0020 E0                MOVX    A,@DPTR
+0021 2400        R     ADD     A,#LOW ComTxCtrl+04H
+0023 F582              MOV     DPL,A
+0025 E4                CLR     A
+0026 3400        R     ADDC    A,#HIGH ComTxCtrl+04H
+0028 F583              MOV     DPH,A
+002A E0                MOVX    A,@DPTR
+002B F5E5              MOV     USIDR,A
+                                           ; SOURCE LINE # 132
+002D 900000      R     MOV     DPTR,#ComTxCtrl+02H
+0030 E0                MOVX    A,@DPTR
+0031 04                INC     A
+0032 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 133
+0033 A3                INC     DPTR
+0034 E0                MOVX    A,@DPTR
+0035 14                DEC     A
+0036 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 134
+0037 8005              SJMP    ?C0015
+0039         ?C0013:
+                                           ; SOURCE LINE # 135
+0039 900000      R     MOV     DPTR,#ComTxCtrl
+003C E4                CLR     A
+003D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 136
+                                           ; SOURCE LINE # 138
+                                           ; SOURCE LINE # 140
+003E         ?C0015:
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 15  
+
+003E D0D0              POP     PSW
+0040 D082              POP     DPL
+0042 D083              POP     DPH
+0044 D0E0              POP     ACC
+0046 32                RETI    
+             ; FUNCTION INT_USI_Tx (END)
+
+             ; FUNCTION drv_uart_tx (BEGIN)
+                                           ; SOURCE LINE # 157
+                                           ; SOURCE LINE # 158
+0000 900000      R     MOV     DPTR,#ComTxCtrl
+0003 E0                MOVX    A,@DPTR
+0004 24FE              ADD     A,#0FEH
+0006 602E              JZ      ?C0019
+0008 04                INC     A
+0009 7060              JNZ     ?C0024
+                                           ; SOURCE LINE # 159
+000B         ?C0017:
+                                           ; SOURCE LINE # 160
+000B E4                CLR     A
+000C 900000      R     MOV     DPTR,#ComTxCtrl+02H
+000F F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 161
+0010 E5E1              MOV     A,USIST1
+0012 5480              ANL     A,#080H
+0014 6480              XRL     A,#080H
+0016 7053              JNZ     ?C0024
+                                           ; SOURCE LINE # 162
+0018 E0                MOVX    A,@DPTR
+0019 2400        R     ADD     A,#LOW ComTxCtrl+04H
+001B F582              MOV     DPL,A
+001D E4                CLR     A
+001E 3400        R     ADDC    A,#HIGH ComTxCtrl+04H
+0020 F583              MOV     DPH,A
+0022 E0                MOVX    A,@DPTR
+0023 F5E5              MOV     USIDR,A
+                                           ; SOURCE LINE # 163
+0025 900000      R     MOV     DPTR,#ComTxCtrl+02H
+0028 E0                MOVX    A,@DPTR
+0029 04                INC     A
+002A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 164
+002B A3                INC     DPTR
+002C E0                MOVX    A,@DPTR
+002D 14                DEC     A
+002E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 165
+002F 900000      R     MOV     DPTR,#ComTxCtrl
+0032 7402              MOV     A,#02H
+0034 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 166
+                                           ; SOURCE LINE # 167
+0035 22                RET     
+                                           ; SOURCE LINE # 168
+0036         ?C0019:
+                                           ; SOURCE LINE # 169
+0036 E5E1              MOV     A,USIST1
+0038 5480              ANL     A,#080H
+003A 6480              XRL     A,#080H
+003C 702D              JNZ     ?C0024
+                                           ; SOURCE LINE # 170
+003E 900000      R     MOV     DPTR,#ComTxCtrl+03H
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 16  
+
+0041 E0                MOVX    A,@DPTR
+0042 D3                SETB    C
+0043 9400              SUBB    A,#00H
+0045 7480              MOV     A,#080H
+0047 9480              SUBB    A,#080H
+0049 401B              JC      ?C0021
+                                           ; SOURCE LINE # 171
+                                           ; SOURCE LINE # 173
+004B 900000      R     MOV     DPTR,#ComTxCtrl+02H
+004E E0                MOVX    A,@DPTR
+004F 2400        R     ADD     A,#LOW ComTxCtrl+04H
+0051 F582              MOV     DPL,A
+0053 E4                CLR     A
+0054 3400        R     ADDC    A,#HIGH ComTxCtrl+04H
+0056 F583              MOV     DPH,A
+0058 E0                MOVX    A,@DPTR
+0059 F5E5              MOV     USIDR,A
+                                           ; SOURCE LINE # 174
+005B 900000      R     MOV     DPTR,#ComTxCtrl+02H
+005E E0                MOVX    A,@DPTR
+005F 04                INC     A
+0060 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 175
+0061 A3                INC     DPTR
+0062 E0                MOVX    A,@DPTR
+0063 14                DEC     A
+0064 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 176
+0065 22                RET     
+0066         ?C0021:
+                                           ; SOURCE LINE # 177
+0066 E4                CLR     A
+0067 900000      R     MOV     DPTR,#ComTxCtrl
+006A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 178
+                                           ; SOURCE LINE # 179
+                                           ; SOURCE LINE # 180
+                                           ; SOURCE LINE # 181
+                                           ; SOURCE LINE # 182
+                                           ; SOURCE LINE # 183
+                                           ; SOURCE LINE # 185
+006B         ?C0024:
+006B 22                RET     
+             ; FUNCTION drv_uart_tx (END)
+
+             ; FUNCTION SendATcommad (BEGIN)
+                                           ; SOURCE LINE # 224
+                                           ; SOURCE LINE # 225
+0000 900000      R     MOV     DPTR,#ComTxCtrl+04H
+0003 742B              MOV     A,#02BH
+0005 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 226
+0006 A3                INC     DPTR
+0007 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 227
+0008 A3                INC     DPTR
+0009 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 228
+000A 900000      R     MOV     DPTR,#ComTxCtrl+03H
+000D 7403              MOV     A,#03H
+000F F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 232
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 17  
+
+0010 900000      R     MOV     DPTR,#ComTxCtrl
+0013 7401              MOV     A,#01H
+0015 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 235
+0016 22                RET     
+             ; FUNCTION SendATcommad (END)
+
+             ; FUNCTION SendATNameChange (BEGIN)
+                                           ; SOURCE LINE # 251
+                                           ; SOURCE LINE # 252
+0000 900000      R     MOV     DPTR,#ComTxCtrl+04H
+0003 7441              MOV     A,#041H
+0005 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 253
+0006 A3                INC     DPTR
+0007 7454              MOV     A,#054H
+0009 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 254
+000A A3                INC     DPTR
+000B 742B              MOV     A,#02BH
+000D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 255
+000E A3                INC     DPTR
+000F 7473              MOV     A,#073H
+0011 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 256
+0012 A3                INC     DPTR
+0013 7465              MOV     A,#065H
+0015 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 257
+0016 A3                INC     DPTR
+0017 7474              MOV     A,#074H
+0019 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 258
+001A A3                INC     DPTR
+001B 744E              MOV     A,#04EH
+001D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 259
+001E A3                INC     DPTR
+001F 7461              MOV     A,#061H
+0021 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 260
+0022 A3                INC     DPTR
+0023 746D              MOV     A,#06DH
+0025 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 261
+0026 A3                INC     DPTR
+0027 7465              MOV     A,#065H
+0029 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 262
+002A A3                INC     DPTR
+002B 743D              MOV     A,#03DH
+002D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 263
+002E A3                INC     DPTR
+002F 7446              MOV     A,#046H
+0031 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 264
+0032 A3                INC     DPTR
+0033 746C              MOV     A,#06CH
+0035 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 265
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 18  
+
+0036 A3                INC     DPTR
+0037 746F              MOV     A,#06FH
+0039 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 266
+003A A3                INC     DPTR
+003B 7477              MOV     A,#077H
+003D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 267
+003E A3                INC     DPTR
+003F 744D              MOV     A,#04DH
+0041 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 268
+0042 A3                INC     DPTR
+0043 746F              MOV     A,#06FH
+0045 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 269
+0046 A3                INC     DPTR
+0047 7476              MOV     A,#076H
+0049 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 270
+004A A3                INC     DPTR
+004B 7465              MOV     A,#065H
+004D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 271
+004E A3                INC     DPTR
+004F 740D              MOV     A,#0DH
+0051 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 272
+0052 A3                INC     DPTR
+0053 740A              MOV     A,#0AH
+0055 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 273
+0056 900000      R     MOV     DPTR,#ComTxCtrl+03H
+0059 7415              MOV     A,#015H
+005B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 277
+005C 900000      R     MOV     DPTR,#ComTxCtrl
+005F 7401              MOV     A,#01H
+0061 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 280
+0062 22                RET     
+             ; FUNCTION SendATNameChange (END)
+
+             ; FUNCTION SendATexit (BEGIN)
+                                           ; SOURCE LINE # 294
+                                           ; SOURCE LINE # 295
+0000 900000      R     MOV     DPTR,#ComTxCtrl+04H
+0003 7441              MOV     A,#041H
+0005 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 296
+0006 A3                INC     DPTR
+0007 7454              MOV     A,#054H
+0009 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 297
+000A A3                INC     DPTR
+000B 742B              MOV     A,#02BH
+000D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 298
+000E A3                INC     DPTR
+000F 7465              MOV     A,#065H
+0011 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 299
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 19  
+
+0012 A3                INC     DPTR
+0013 7478              MOV     A,#078H
+0015 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 300
+0016 A3                INC     DPTR
+0017 7469              MOV     A,#069H
+0019 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 301
+001A A3                INC     DPTR
+001B 7474              MOV     A,#074H
+001D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 302
+001E A3                INC     DPTR
+001F 740D              MOV     A,#0DH
+0021 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 303
+0022 A3                INC     DPTR
+0023 7464              MOV     A,#064H
+0025 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 304
+0026 900000      R     MOV     DPTR,#ComTxCtrl+03H
+0029 7409              MOV     A,#09H
+002B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 308
+002C 900000      R     MOV     DPTR,#ComTxCtrl
+002F 7401              MOV     A,#01H
+0031 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 311
+0032 22                RET     
+             ; FUNCTION SendATexit (END)
+
+             ; FUNCTION _SendAckFrame (BEGIN)
+                                           ; SOURCE LINE # 326
+;---- Variable 'cmd' assigned to Register 'R7' ----
+                                           ; SOURCE LINE # 328
+0000 900000      R     MOV     DPTR,#ComTxCtrl+04H
+0003 749A              MOV     A,#09AH
+0005 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 329
+0006 A3                INC     DPTR
+0007 7401              MOV     A,#01H
+0009 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 330
+000A A3                INC     DPTR
+000B EF                MOV     A,R7
+000C F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 331
+000D 900000      R     MOV     DPTR,#ComTxCtrl+05H
+0010 E0                MOVX    A,@DPTR
+0011 249A              ADD     A,#09AH
+0013 2F                ADD     A,R7
+0014 900000      R     MOV     DPTR,#ComTxCtrl+07H
+0017 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 332
+0018 900000      R     MOV     DPTR,#ComTxCtrl+03H
+001B 7404              MOV     A,#04H
+001D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 336
+001E 900000      R     MOV     DPTR,#ComTxCtrl
+0021 7401              MOV     A,#01H
+0023 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 339
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 20  
+
+0024 22                RET     
+             ; FUNCTION _SendAckFrame (END)
+
+             ; FUNCTION _SendNoticeFrame (BEGIN)
+                                           ; SOURCE LINE # 354
+;---- Variable 'pressure' assigned to Register 'R7' ----
+;---- Variable 'battery' assigned to Register 'R3' ----
+;---- Variable 'temperature' assigned to Register 'R5' ----
+                                           ; SOURCE LINE # 355
+                                           ; SOURCE LINE # 357
+0000 900000      R     MOV     DPTR,#ComTxCtrl+04H
+0003 749A              MOV     A,#09AH
+0005 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 358
+0006 A3                INC     DPTR
+0007 7405              MOV     A,#05H
+0009 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 359
+000A A3                INC     DPTR
+000B 7485              MOV     A,#085H
+000D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 360
+000E A3                INC     DPTR
+000F EF                MOV     A,R7
+0010 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 361
+0011 A3                INC     DPTR
+0012 ED                MOV     A,R5
+0013 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 362
+0014 A3                INC     DPTR
+0015 EB                MOV     A,R3
+0016 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 363
+0017 EF                MOV     A,R7
+0018 2424              ADD     A,#024H
+001A 2D                ADD     A,R5
+001B 2B                ADD     A,R3
+001C A3                INC     DPTR
+001D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 364
+001E 900000      R     MOV     DPTR,#ComTxCtrl+03H
+0021 7407              MOV     A,#07H
+0023 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 368
+0024 900000      R     MOV     DPTR,#ComTxCtrl
+0027 7401              MOV     A,#01H
+0029 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 374
+002A 22                RET     
+             ; FUNCTION _SendNoticeFrame (END)
+
+             ; FUNCTION IsTxComplete (BEGIN)
+                                           ; SOURCE LINE # 390
+                                           ; SOURCE LINE # 392
+0000 900000      R     MOV     DPTR,#ComTxCtrl
+0003 E0                MOVX    A,@DPTR
+0004 7004              JNZ     ?C0030
+0006 7F01              MOV     R7,#01H
+0008 8002              SJMP    ?C0031
+000A         ?C0030:
+000A 7F00              MOV     R7,#00H
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 21  
+
+000C         ?C0031:
+                                           ; SOURCE LINE # 393
+000C 22                RET     
+             ; FUNCTION IsTxComplete (END)
+
+             ; FUNCTION ReceiveUartAtOk (BEGIN)
+                                           ; SOURCE LINE # 410
+                                           ; SOURCE LINE # 412
+;---- Variable 'retVal' assigned to Register 'R4' ----
+0000 E4                CLR     A
+0001 FC                MOV     R4,A
+0002         ?C0033:
+                                           ; SOURCE LINE # 414
+0002 7B00              MOV     R3,#00H
+0004 7A00        R     MOV     R2,#HIGH chr
+0006 7900        R     MOV     R1,#LOW chr
+0008 120000      R     LCALL   _drv_uart_get
+000B EF                MOV     A,R7
+000C 601A              JZ      ?C0034
+                                           ; SOURCE LINE # 418
+000E 900000      R     MOV     DPTR,#rx_buf+01H
+0011 E0                MOVX    A,@DPTR
+0012 900000      R     MOV     DPTR,#rx_buf
+0015 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 419
+0016 A3                INC     DPTR
+0017 E500        R     MOV     A,chr
+0019 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 420
+001A 900000      R     MOV     DPTR,#rx_buf
+001D E0                MOVX    A,@DPTR
+001E B46FE1            CJNE    A,#06FH,?C0033
+0021 A3                INC     DPTR
+0022 E0                MOVX    A,@DPTR
+0023 B46BDC            CJNE    A,#06BH,?C0033
+                                           ; SOURCE LINE # 421
+0026 7C01              MOV     R4,#01H
+                                           ; SOURCE LINE # 422
+                                           ; SOURCE LINE # 423
+                                           ; SOURCE LINE # 424
+0028         ?C0034:
+                                           ; SOURCE LINE # 425
+0028 EC                MOV     A,R4
+0029 FF                MOV     R7,A
+                                           ; SOURCE LINE # 426
+002A 22                RET     
+             ; FUNCTION ReceiveUartAtOk (END)
+
+             ; FUNCTION ReceiveUartFrame (BEGIN)
+                                           ; SOURCE LINE # 440
+                                           ; SOURCE LINE # 443
+0000 E4                CLR     A
+0001 F500        R     MOV     retVal,A
+0003         ?C0037:
+                                           ; SOURCE LINE # 445
+0003 7B00              MOV     R3,#00H
+0005 7A00        R     MOV     R2,#HIGH chr
+0007 7900        R     MOV     R1,#LOW chr
+0009 120000      R     LCALL   _drv_uart_get
+000C EF                MOV     A,R7
+000D 7003              JNZ     $ + 5H
+000F 020000      R     LJMP    ?C0038
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 22  
+
+                                           ; SOURCE LINE # 446
+                                           ; SOURCE LINE # 447
+;---- Variable 'i' assigned to Register 'R7' ----
+0012 7F01              MOV     R7,#01H
+0014         ?C0039:
+0014 EF                MOV     A,R7
+0015 C3                CLR     C
+0016 9409              SUBB    A,#09H
+0018 7480              MOV     A,#080H
+001A 9480              SUBB    A,#080H
+001C 501B              JNC     ?C0040
+                                           ; SOURCE LINE # 448
+001E 7400        R     MOV     A,#LOW ConnectData
+0020 2F                ADD     A,R7
+0021 F582              MOV     DPL,A
+0023 E4                CLR     A
+0024 3400        R     ADDC    A,#HIGH ConnectData
+0026 F583              MOV     DPH,A
+0028 E0                MOVX    A,@DPTR
+0029 FE                MOV     R6,A
+002A 7400        R     MOV     A,#LOW ConnectData+0FFFFH
+002C 2F                ADD     A,R7
+002D F582              MOV     DPL,A
+002F E4                CLR     A
+0030 3400        R     ADDC    A,#HIGH ConnectData+0FFFFH
+0032 F583              MOV     DPH,A
+0034 EE                MOV     A,R6
+0035 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 449
+0036 0F                INC     R7
+0037 80DB              SJMP    ?C0039
+0039         ?C0040:
+                                           ; SOURCE LINE # 450
+0039 900000      R     MOV     DPTR,#ConnectData+08H
+003C E500        R     MOV     A,chr
+003E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 452
+003F E4                CLR     A
+0040 FF                MOV     R7,A
+0041         ?C0042:
+0041 EF                MOV     A,R7
+0042 FD                MOV     R5,A
+0043 7C00              MOV     R4,#00H
+0045 C3                CLR     C
+0046 9409              SUBB    A,#09H
+0048 7480              MOV     A,#080H
+004A 9480              SUBB    A,#080H
+004C 5017              JNC     ?C0043
+                                           ; SOURCE LINE # 453
+004E EF                MOV     A,R7
+004F 900000      R     MOV     DPTR,#DisconnectInd
+0052 93                MOVC    A,@A+DPTR
+0053 FE                MOV     R6,A
+0054 7400        R     MOV     A,#LOW ConnectData
+0056 2F                ADD     A,R7
+0057 F582              MOV     DPL,A
+0059 E4                CLR     A
+005A 3400        R     ADDC    A,#HIGH ConnectData
+005C F583              MOV     DPH,A
+005E E0                MOVX    A,@DPTR
+005F 6E                XRL     A,R6
+0060 7003              JNZ     ?C0043
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 23  
+
+                                           ; SOURCE LINE # 454
+                                           ; SOURCE LINE # 455
+                                           ; SOURCE LINE # 456
+0062 0F                INC     R7
+0063 80DC              SJMP    ?C0042
+0065         ?C0043:
+                                           ; SOURCE LINE # 457
+0065 ED                MOV     A,R5
+0066 6409              XRL     A,#09H
+0068 4C                ORL     A,R4
+0069 7007              JNZ     ?C0046
+                                           ; SOURCE LINE # 458
+006B FD                MOV     R5,A
+006C FC                MOV     R4,A
+006D 7F0A              MOV     R7,#0AH
+006F 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 459
+0072         ?C0046:
+                                           ; SOURCE LINE # 463
+0072 900000      R     MOV     DPTR,#ComRxCtrl
+0075 E0                MOVX    A,@DPTR
+0076 14                DEC     A
+0077 604C              JZ      ?C0050
+0079 14                DEC     A
+007A 7003              JNZ     $ + 5H
+007C 020000      R     LJMP    ?C0054
+007F 14                DEC     A
+0080 7003              JNZ     $ + 5H
+0082 020000      R     LJMP    ?C0056
+0085 2403              ADD     A,#03H
+0087 6003              JZ      $ + 5H
+0089 020000      R     LJMP    ?C0059
+                                           ; SOURCE LINE # 464
+                                           ; SOURCE LINE # 465
+008C         ?C0048:
+                                           ; SOURCE LINE # 466
+008C E500        R     MOV     A,chr
+008E 649A              XRL     A,#09AH
+0090 6003              JZ      $ + 5H
+0092 020000      R     LJMP    ?C0037
+                                           ; SOURCE LINE # 467
+                                           ; SOURCE LINE # 468
+0095 F500        R     MOV     rx_byte_timeout,A
+0097 F500        R     MOV     rx_byte_timeout+01H,A
+                                           ; SOURCE LINE # 469
+0099 900000      R     MOV     DPTR,#ComRxCtrl+01H
+009C 04                INC     A
+009D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 470
+009E E4                CLR     A
+009F 900000      R     MOV     DPTR,#ComRxCtrl+03H
+00A2 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 472
+00A3 E0                MOVX    A,@DPTR
+00A4 2400        R     ADD     A,#LOW ComRxCtrl+05H
+00A6 F582              MOV     DPL,A
+00A8 E4                CLR     A
+00A9 3400        R     ADDC    A,#HIGH ComRxCtrl+05H
+00AB F583              MOV     DPH,A
+00AD 749A              MOV     A,#09AH
+00AF F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 473
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 24  
+
+00B0 900000      R     MOV     DPTR,#ComRxCtrl+03H
+00B3 E0                MOVX    A,@DPTR
+00B4 04                INC     A
+00B5 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 475
+00B6 900000      R     MOV     DPTR,#ComRxCtrl+02H
+00B9 749A              MOV     A,#09AH
+00BB F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 476
+00BC 900000      R     MOV     DPTR,#ComRxCtrl
+00BF 7401              MOV     A,#01H
+00C1 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 477
+                                           ; SOURCE LINE # 478
+00C2 020000      R     LJMP    ?C0037
+                                           ; SOURCE LINE # 480
+00C5         ?C0050:
+                                           ; SOURCE LINE # 481
+00C5 AF00        R     MOV     R7,chr
+00C7 7E00              MOV     R6,#00H
+00C9 C3                CLR     C
+00CA EF                MOV     A,R7
+00CB 9401              SUBB    A,#01H
+00CD 7480              MOV     A,#080H
+00CF 9480              SUBB    A,#080H
+00D1 400A              JC      ?C0052
+00D3 D3                SETB    C
+00D4 EF                MOV     A,R7
+00D5 9404              SUBB    A,#04H
+00D7 7480              MOV     A,#080H
+00D9 9480              SUBB    A,#080H
+00DB 400C              JC      ?C0051
+00DD         ?C0052:
+                                           ; SOURCE LINE # 482
+                                           ; SOURCE LINE # 483
+00DD E4                CLR     A
+00DE 900000      R     MOV     DPTR,#ComRxCtrl+01H
+00E1 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 484
+00E2 900000      R     MOV     DPTR,#ComRxCtrl
+00E5 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 486
+00E6 020000      R     LJMP    ?C0037
+00E9         ?C0051:
+                                           ; SOURCE LINE # 488
+                                           ; SOURCE LINE # 489
+00E9 900000      R     MOV     DPTR,#ComRxCtrl+04H
+00EC E500        R     MOV     A,chr
+00EE F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 490
+00EF 900000      R     MOV     DPTR,#ComRxCtrl+03H
+00F2 E0                MOVX    A,@DPTR
+00F3 2400        R     ADD     A,#LOW ComRxCtrl+05H
+00F5 F582              MOV     DPL,A
+00F7 E4                CLR     A
+00F8 3400        R     ADDC    A,#HIGH ComRxCtrl+05H
+00FA F583              MOV     DPH,A
+00FC E500        R     MOV     A,chr
+00FE F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 491
+00FF 900000      R     MOV     DPTR,#ComRxCtrl+03H
+0102 E0                MOVX    A,@DPTR
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 25  
+
+0103 04                INC     A
+0104 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 493
+0105 900000      R     MOV     DPTR,#ComRxCtrl+02H
+0108 E0                MOVX    A,@DPTR
+0109 2500        R     ADD     A,chr
+010B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 494
+010C 900000      R     MOV     DPTR,#ComRxCtrl
+010F 7402              MOV     A,#02H
+0111 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 495
+                                           ; SOURCE LINE # 496
+0112 020000      R     LJMP    ?C0037
+                                           ; SOURCE LINE # 498
+0115         ?C0054:
+                                           ; SOURCE LINE # 500
+0115 900000      R     MOV     DPTR,#ComRxCtrl+03H
+0118 E0                MOVX    A,@DPTR
+0119 2400        R     ADD     A,#LOW ComRxCtrl+05H
+011B F582              MOV     DPL,A
+011D E4                CLR     A
+011E 3400        R     ADDC    A,#HIGH ComRxCtrl+05H
+0120 F583              MOV     DPH,A
+0122 E500        R     MOV     A,chr
+0124 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 501
+0125 900000      R     MOV     DPTR,#ComRxCtrl+03H
+0128 E0                MOVX    A,@DPTR
+0129 04                INC     A
+012A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 502
+012B A3                INC     DPTR
+012C E0                MOVX    A,@DPTR
+012D 14                DEC     A
+012E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 503
+012F 900000      R     MOV     DPTR,#ComRxCtrl+02H
+0132 E0                MOVX    A,@DPTR
+0133 2500        R     ADD     A,chr
+0135 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 505
+0136 900000      R     MOV     DPTR,#ComRxCtrl+04H
+0139 E0                MOVX    A,@DPTR
+013A 6003              JZ      $ + 5H
+013C 020000      R     LJMP    ?C0037
+                                           ; SOURCE LINE # 506
+                                           ; SOURCE LINE # 507
+013F 900000      R     MOV     DPTR,#ComRxCtrl
+0142 7403              MOV     A,#03H
+0144 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 508
+                                           ; SOURCE LINE # 512
+0145 020000      R     LJMP    ?C0037
+                                           ; SOURCE LINE # 514
+0148         ?C0056:
+                                           ; SOURCE LINE # 517
+0148 900000      R     MOV     DPTR,#ComRxCtrl+02H
+014B E0                MOVX    A,@DPTR
+014C 6500        R     XRL     A,chr
+014E 7005              JNZ     ?C0057
+                                           ; SOURCE LINE # 518
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 26  
+
+                                           ; SOURCE LINE # 519
+0150 750001      R     MOV     retVal,#01H
+                                           ; SOURCE LINE # 520
+0153 8003              SJMP    ?C0059
+0155         ?C0057:
+                                           ; SOURCE LINE # 522
+                                           ; SOURCE LINE # 523
+0155 750002      R     MOV     retVal,#02H
+                                           ; SOURCE LINE # 524
+                                           ; SOURCE LINE # 525
+0158         ?C0059:
+                                           ; SOURCE LINE # 526
+0158 E4                CLR     A
+0159 900000      R     MOV     DPTR,#ComRxCtrl+01H
+015C F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 527
+015D 900000      R     MOV     DPTR,#ComRxCtrl
+0160 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 528
+0161 020000      R     LJMP    ?C0037
+                                           ; SOURCE LINE # 529
+                                           ; SOURCE LINE # 530
+0164 020000      R     LJMP    ?C0037
+0167         ?C0038:
+                                           ; SOURCE LINE # 534
+0167 E500        R     MOV     A,retVal
+0169 701D              JNZ     ?C0060
+                                           ; SOURCE LINE # 535
+                                           ; SOURCE LINE # 537
+016B 900000      R     MOV     DPTR,#ComRxCtrl+01H
+016E E0                MOVX    A,@DPTR
+016F 6401              XRL     A,#01H
+0171 7015              JNZ     ?C0060
+0173 C3                CLR     C
+0174 E500        R     MOV     A,rx_byte_timeout+01H
+0176 94E8              SUBB    A,#0E8H
+0178 E500        R     MOV     A,rx_byte_timeout
+017A 9403              SUBB    A,#03H
+017C 400A              JC      ?C0060
+                                           ; SOURCE LINE # 539
+                                           ; SOURCE LINE # 541
+017E E4                CLR     A
+017F 900000      R     MOV     DPTR,#ComRxCtrl
+0182 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 542
+0183 A3                INC     DPTR
+0184 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 543
+0185 750003      R     MOV     retVal,#03H
+                                           ; SOURCE LINE # 544
+                                           ; SOURCE LINE # 545
+0188         ?C0060:
+                                           ; SOURCE LINE # 546
+0188 AF00        R     MOV     R7,retVal
+                                           ; SOURCE LINE # 547
+018A 22                RET     
+             ; FUNCTION ReceiveUartFrame (END)
+
+             ; FUNCTION drv_comm (BEGIN)
+                                           ; SOURCE LINE # 570
+                                           ; SOURCE LINE # 572
+0000 900000      R     MOV     DPTR,#commState
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 27  
+
+0003 E0                MOVX    A,@DPTR
+0004 14                DEC     A
+0005 7003              JNZ     $ + 5H
+0007 020000      R     LJMP    ?C0082
+000A 14                DEC     A
+000B 7003              JNZ     $ + 5H
+000D 020000      R     LJMP    ?C0090
+0010 14                DEC     A
+0011 7003              JNZ     $ + 5H
+0013 020000      R     LJMP    ?C0092
+0016 2403              ADD     A,#03H
+0018 6003              JZ      $ + 5H
+001A 020000      R     LJMP    ?C0094
+                                           ; SOURCE LINE # 573
+001D         ?C0064:
+                                           ; SOURCE LINE # 574
+001D 900000      R     MOV     DPTR,#comSubState
+0020 E0                MOVX    A,@DPTR
+0021 14                DEC     A
+0022 601A              JZ      ?C0067
+0024 14                DEC     A
+0025 6034              JZ      ?C0069
+0027 14                DEC     A
+0028 6065              JZ      ?C0073
+002A 24FE              ADD     A,#0FEH
+002C 7003              JNZ     $ + 5H
+002E 020000      R     LJMP    ?C0077
+0031 2405              ADD     A,#05H
+0033 6003              JZ      $ + 5H
+0035 020000      R     LJMP    ?C0095
+                                           ; SOURCE LINE # 575
+0038         ?C0066:
+                                           ; SOURCE LINE # 576
+0038 E4                CLR     A
+0039 F500        R     MOV     rx_timeout,A
+003B F500        R     MOV     rx_timeout+01H,A
+                                           ; SOURCE LINE # 577
+003D 22                RET     
+                                           ; SOURCE LINE # 578
+003E         ?C0067:
+                                           ; SOURCE LINE # 579
+003E C3                CLR     C
+003F E500        R     MOV     A,rx_timeout+01H
+0041 94E8              SUBB    A,#0E8H
+0043 E500        R     MOV     A,rx_timeout
+0045 9403              SUBB    A,#03H
+0047 5003              JNC     $ + 5H
+0049 020000      R     LJMP    ?C0095
+                                           ; SOURCE LINE # 580
+004C 120000      R     LCALL   SendATcommad
+                                           ; SOURCE LINE # 581
+004F E4                CLR     A
+0050 F500        R     MOV     rx_timeout,A
+0052 F500        R     MOV     rx_timeout+01H,A
+                                           ; SOURCE LINE # 582
+0054 900000      R     MOV     DPTR,#comSubState
+0057 7402              MOV     A,#02H
+0059 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 583
+                                           ; SOURCE LINE # 584
+005A 22                RET     
+                                           ; SOURCE LINE # 585
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 28  
+
+005B         ?C0069:
+                                           ; SOURCE LINE # 586
+005B 120000      R     LCALL   ReceiveUartAtOk
+005E EF                MOV     A,R7
+005F 6401              XRL     A,#01H
+0061 700F              JNZ     ?C0070
+                                           ; SOURCE LINE # 587
+0063 120000      R     LCALL   SendATNameChange
+                                           ; SOURCE LINE # 588
+0066 E4                CLR     A
+0067 F500        R     MOV     rx_timeout,A
+0069 F500        R     MOV     rx_timeout+01H,A
+                                           ; SOURCE LINE # 589
+006B 900000      R     MOV     DPTR,#comSubState
+006E 7403              MOV     A,#03H
+0070 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 590
+0071 22                RET     
+0072         ?C0070:
+                                           ; SOURCE LINE # 591
+0072 C3                CLR     C
+0073 E500        R     MOV     A,rx_timeout+01H
+0075 94E8              SUBB    A,#0E8H
+0077 E500        R     MOV     A,rx_timeout
+0079 9403              SUBB    A,#03H
+007B 5003              JNC     $ + 5H
+007D 020000      R     LJMP    ?C0095
+                                           ; SOURCE LINE # 592
+0080 E4                CLR     A
+0081 F500        R     MOV     rx_timeout,A
+0083 F500        R     MOV     rx_timeout+01H,A
+                                           ; SOURCE LINE # 593
+0085 120000      R     LCALL   SendATexit
+                                           ; SOURCE LINE # 594
+0088 900000      R     MOV     DPTR,#comSubState
+008B 7405              MOV     A,#05H
+008D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 595
+                                           ; SOURCE LINE # 596
+                                           ; SOURCE LINE # 597
+008E 22                RET     
+                                           ; SOURCE LINE # 598
+008F         ?C0073:
+                                           ; SOURCE LINE # 599
+008F 120000      R     LCALL   ReceiveUartAtOk
+0092 EF                MOV     A,R7
+0093 6401              XRL     A,#01H
+0095 700E              JNZ     ?C0074
+                                           ; SOURCE LINE # 600
+0097 F500        R     MOV     rx_timeout,A
+0099 F500        R     MOV     rx_timeout+01H,A
+                                           ; SOURCE LINE # 601
+009B 120000      R     LCALL   SendATexit
+                                           ; SOURCE LINE # 602
+009E 900000      R     MOV     DPTR,#comSubState
+00A1 7405              MOV     A,#05H
+00A3 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 603
+00A4 22                RET     
+00A5         ?C0074:
+                                           ; SOURCE LINE # 604
+00A5 C3                CLR     C
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 29  
+
+00A6 E500        R     MOV     A,rx_timeout+01H
+00A8 94E8              SUBB    A,#0E8H
+00AA E500        R     MOV     A,rx_timeout
+00AC 9403              SUBB    A,#03H
+00AE 5003              JNC     $ + 5H
+00B0 020000      R     LJMP    ?C0095
+                                           ; SOURCE LINE # 605
+00B3 120000      R     LCALL   SendATexit
+                                           ; SOURCE LINE # 606
+00B6 E4                CLR     A
+00B7 F500        R     MOV     rx_timeout,A
+00B9 F500        R     MOV     rx_timeout+01H,A
+                                           ; SOURCE LINE # 607
+00BB 900000      R     MOV     DPTR,#comSubState
+00BE 7405              MOV     A,#05H
+00C0 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 608
+                                           ; SOURCE LINE # 609
+                                           ; SOURCE LINE # 610
+00C1 22                RET     
+                                           ; SOURCE LINE # 611
+00C2         ?C0077:
+                                           ; SOURCE LINE # 612
+00C2 120000      R     LCALL   ReceiveUartAtOk
+00C5 EF                MOV     A,R7
+00C6 6401              XRL     A,#01H
+00C8 7006              JNZ     ?C0078
+                                           ; SOURCE LINE # 613
+00CA 900000      R     MOV     DPTR,#commState
+00CD 04                INC     A
+00CE F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 614
+00CF 22                RET     
+00D0         ?C0078:
+                                           ; SOURCE LINE # 616
+00D0 C3                CLR     C
+00D1 E500        R     MOV     A,rx_timeout+01H
+00D3 94E8              SUBB    A,#0E8H
+00D5 E500        R     MOV     A,rx_timeout
+00D7 9403              SUBB    A,#03H
+00D9 5003              JNC     $ + 5H
+00DB 020000      R     LJMP    ?C0095
+                                           ; SOURCE LINE # 617
+00DE 900000      R     MOV     DPTR,#commState
+00E1 7401              MOV     A,#01H
+00E3 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 618
+                                           ; SOURCE LINE # 619
+                                           ; SOURCE LINE # 620
+00E4 22                RET     
+                                           ; SOURCE LINE # 621
+                                           ; SOURCE LINE # 622
+                                           ; SOURCE LINE # 623
+                                           ; SOURCE LINE # 626
+00E5 22                RET     
+                                           ; SOURCE LINE # 627
+00E6         ?C0082:
+                                           ; SOURCE LINE # 628
+00E6 900000      E     MOV     DPTR,#callbackQueue+02H
+00E9 E0                MOVX    A,@DPTR
+00EA 6022              JZ      ?C0083
+                                           ; SOURCE LINE # 630
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 30  
+
+00EC 900000      R     MOV     DPTR,#ComTxCtrl
+00EF E0                MOVX    A,@DPTR
+00F0 6003              JZ      $ + 5H
+00F2 020000      R     LJMP    ?C0095
+                                           ; SOURCE LINE # 631
+00F5 900000      E     MOV     DPTR,#callbackQueue
+00F8 E0                MOVX    A,@DPTR
+00F9 2400        E     ADD     A,#LOW callbackQueue+03H
+00FB F582              MOV     DPL,A
+00FD E4                CLR     A
+00FE 3400        E     ADDC    A,#HIGH callbackQueue+03H
+0100 F583              MOV     DPH,A
+0102 E0                MOVX    A,@DPTR
+0103 FF                MOV     R7,A
+0104 120000      R     LCALL   _SendAckFrame
+                                           ; SOURCE LINE # 632
+0107 900000      R     MOV     DPTR,#commState
+010A 7402              MOV     A,#02H
+010C F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 633
+                                           ; SOURCE LINE # 635
+010D 22                RET     
+010E         ?C0083:
+010E 900000      E     MOV     DPTR,#commandQueue+02H
+0111 E0                MOVX    A,@DPTR
+0112 6047              JZ      ?C0086
+                                           ; SOURCE LINE # 637
+0114 900000      R     MOV     DPTR,#ComTxCtrl
+0117 E0                MOVX    A,@DPTR
+0118 7079              JNZ     ?C0095
+                                           ; SOURCE LINE # 638
+011A 900000      E     MOV     DPTR,#commandQueue
+011D E0                MOVX    A,@DPTR
+011E FE                MOV     R6,A
+011F 75F003            MOV     B,#03H
+0122 A4                MUL     AB
+0123 2400        E     ADD     A,#LOW commandQueue+03H
+0125 F582              MOV     DPL,A
+0127 E4                CLR     A
+0128 3400        E     ADDC    A,#HIGH commandQueue+03H
+012A F583              MOV     DPH,A
+012C E0                MOVX    A,@DPTR
+012D FF                MOV     R7,A
+012E EE                MOV     A,R6
+012F 75F003            MOV     B,#03H
+0132 A4                MUL     AB
+0133 2400        E     ADD     A,#LOW commandQueue+04H
+0135 F582              MOV     DPL,A
+0137 E4                CLR     A
+0138 3400        E     ADDC    A,#HIGH commandQueue+04H
+013A F583              MOV     DPH,A
+013C E0                MOVX    A,@DPTR
+013D FD                MOV     R5,A
+013E 900000      E     MOV     DPTR,#commandQueue
+0141 E0                MOVX    A,@DPTR
+0142 75F003            MOV     B,#03H
+0145 A4                MUL     AB
+0146 2400        E     ADD     A,#LOW commandQueue+05H
+0148 F582              MOV     DPL,A
+014A E4                CLR     A
+014B 3400        E     ADDC    A,#HIGH commandQueue+05H
+014D F583              MOV     DPH,A
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 31  
+
+014F E0                MOVX    A,@DPTR
+0150 FB                MOV     R3,A
+0151 120000      R     LCALL   _SendNoticeFrame
+                                           ; SOURCE LINE # 641
+0154 900000      R     MOV     DPTR,#commState
+0157 7403              MOV     A,#03H
+0159 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 642
+                                           ; SOURCE LINE # 644
+015A 22                RET     
+015B         ?C0086:
+                                           ; SOURCE LINE # 646
+                                           ; SOURCE LINE # 648
+015B 120000      R     LCALL   ReceiveUartFrame
+015E EF                MOV     A,R7
+015F 6401              XRL     A,#01H
+0161 7030              JNZ     ?C0095
+                                           ; SOURCE LINE # 649
+                                           ; SOURCE LINE # 650
+0163 7B01              MOV     R3,#01H
+0165 7A00        R     MOV     R2,#HIGH ComRxCtrl+07H
+0167 7900        R     MOV     R1,#LOW ComRxCtrl+07H
+0169 120000      E     LCALL   _AppCommandParse
+                                           ; SOURCE LINE # 651
+                                           ; SOURCE LINE # 652
+                                           ; SOURCE LINE # 654
+016C 22                RET     
+                                           ; SOURCE LINE # 655
+016D         ?C0090:
+                                           ; SOURCE LINE # 656
+016D 120000      R     LCALL   IsTxComplete
+0170 EF                MOV     A,R7
+0171 6020              JZ      ?C0095
+                                           ; SOURCE LINE # 657
+0173 120000      E     LCALL   PopAckQueue
+                                           ; SOURCE LINE # 658
+0176 900000      R     MOV     DPTR,#commState
+0179 7401              MOV     A,#01H
+017B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 659
+                                           ; SOURCE LINE # 660
+017C 22                RET     
+                                           ; SOURCE LINE # 661
+017D         ?C0092:
+                                           ; SOURCE LINE # 662
+017D 120000      R     LCALL   IsTxComplete
+0180 EF                MOV     A,R7
+0181 6010              JZ      ?C0095
+                                           ; SOURCE LINE # 663
+0183 120000      E     LCALL   PopCommandQueue
+                                           ; SOURCE LINE # 664
+0186 900000      R     MOV     DPTR,#commState
+0189 7401              MOV     A,#01H
+018B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 665
+                                           ; SOURCE LINE # 666
+018C 22                RET     
+                                           ; SOURCE LINE # 667
+018D         ?C0094:
+                                           ; SOURCE LINE # 668
+018D 900000      R     MOV     DPTR,#commState
+0190 7401              MOV     A,#01H
+C51 COMPILER V9.59.0.0   DRV_UART                                                          06/28/2022 11:43:45 PAGE 32  
+
+0192 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 669
+                                           ; SOURCE LINE # 670
+                                           ; SOURCE LINE # 672
+0193         ?C0095:
+0193 22                RET     
+             ; FUNCTION drv_comm (END)
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1427    ----
+   CONSTANT SIZE    =     20    ----
+   XDATA SIZE       =     89    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      4       3
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

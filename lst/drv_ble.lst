@@ -1,0 +1,171 @@
+C51 COMPILER V9.59.0.0   DRV_BLE                                                           04/27/2022 18:04:37 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE DRV_BLE
+OBJECT MODULE PLACED IN .\out\drv_ble.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\drv_ble.c OPTIMIZE(8,SPEED) BROWSE INCDIR(.\inc) DEBUG OBJECTEXTEND 
+                    -CODE PRINT(.\lst\drv_ble.lst) TABS(2) OBJECT(.\out\drv_ble.obj)
+
+line level    source
+
+   1          
+   2          #include "utiles.h"
+   3          REQUEST_QUEUE   commandQueue;
+*** ERROR C231 IN LINE 3 OF src\drv_ble.c: 'commandQueue': redefinition
+   4          CALLBACK_QUEUE  callbackQueue;
+*** ERROR C231 IN LINE 4 OF src\drv_ble.c: 'callbackQueue': redefinition
+   5          
+   6          
+   7          /******************************************************************************************
+   8          *  FUNCTION NAME: LockStateInd
+   9          *  INPUTS:
+  10          *  OUTPUTS:
+  11          *  VALUE RETURNED:     void.
+  12          *  DESCRIPTION:      
+  13          *  CAUTIONS:    .
+  14          ******************************************************************************************
+  15          * MODIFICATION HISTORY:
+  16          * Date          Person                  Change
+  17          * ---------------------------------------------------------------------------------------
+  18          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  19          ******************************************************************************************/
+  20          void InitialQueue(void){
+  21   1        commandQueue.requestCnt=0;
+  22   1        commandQueue.requestIn=0;
+  23   1        commandQueue.requestOut=0;
+  24   1        callbackQueue.requestCnt=0;
+  25   1        callbackQueue.requestIn=0;
+  26   1        callbackQueue.requestOut=0;
+  27   1      }
+  28          /******************************************************************************************
+  29          *  FUNCTION NAME: SendSysRuningParam
+  30          *  INPUTS:
+  31          *  OUTPUTS:
+  32          *  VALUE RETURNED:     void.
+  33          *  DESCRIPTION:      
+  34          *  CAUTIONS:    .
+  35          ******************************************************************************************
+  36          * MODIFICATION HISTORY:
+  37          * Date          Person                  Change
+  38          * ---------------------------------------------------------------------------------------
+  39          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  40          ******************************************************************************************/
+  41          
+  42          BOOL  SendSysRuningParam(  uint8_t pressure, uint8_t temperature,   uint8_t battery  )
+  43          {
+  44   1        
+  45   1        if (commandQueue.requestCnt < MAX_CALLREQ_QUEUE)
+  46   1        {
+  47   2          commandQueue.requestCnt++;
+  48   2      
+  49   2        commandQueue.requestQueue[commandQueue.requestIn].wCmd =0x85;
+*** ERROR C204 IN LINE 49 OF src\drv_ble.c: 'wCmd': undefined member
+  50   2          commandQueue.requestQueue[commandQueue.requestIn].wLen = 3;
+*** ERROR C204 IN LINE 50 OF src\drv_ble.c: 'wLen': undefined member
+C51 COMPILER V9.59.0.0   DRV_BLE                                                           04/27/2022 18:04:37 PAGE 2   
+
+  51   2        commandQueue.requestQueue[commandQueue.requestIn].wBuf[0]=pressure;
+  52   2        commandQueue.requestQueue[commandQueue.requestIn].wBuf[0]=temperature;
+  53   2        commandQueue.requestQueue[commandQueue.requestIn].wBuf[0]=battery;
+  54   2          if (++commandQueue.requestIn >= MAX_CALLREQ_QUEUE)
+  55   2          {
+  56   3            commandQueue.requestIn = 0;
+  57   3          }
+  58   2          return TRUE;
+  59   2        }
+  60   1        return FALSE;
+  61   1      }
+  62          /******************************************************************************************
+  63          *  FUNCTION NAME: PopCommandQueue
+  64          *  INPUTS:
+  65          *  OUTPUTS:
+  66          *  VALUE RETURNED:     void.
+  67          *  DESCRIPTION:      
+  68          *  CAUTIONS:    .
+  69          ******************************************************************************************
+  70          * MODIFICATION HISTORY:
+  71          * Date          Person                  Change
+  72          * ---------------------------------------------------------------------------------------
+  73          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+  74          ******************************************************************************************/
+  75          void PopCommandQueue(void)
+  76          {
+  77   1        if (commandQueue.requestCnt)
+  78   1        {
+  79   2          commandQueue.requestCnt--;
+  80   2          if (++commandQueue.requestOut >= MAX_CALLBACK_QUEUE)
+  81   2          {
+  82   3            commandQueue.requestOut = 0;
+  83   3          }
+  84   2        }
+  85   1        else
+  86   1        {
+  87   2          commandQueue.requestOut = commandQueue.requestIn;
+  88   2        }
+  89   1      
+  90   1      }
+  91          
+  92          /******************************************************************************************
+  93          *  FUNCTION NAME: SendAppAck
+  94          *  INPUTS:
+  95          *  OUTPUTS:
+  96          *  VALUE RETURNED:     void.
+  97          *  DESCRIPTION:      
+  98          *  CAUTIONS:    .
+  99          ******************************************************************************************
+ 100          * MODIFICATION HISTORY:
+ 101          * Date          Person                  Change
+ 102          * ---------------------------------------------------------------------------------------
+ 103          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 104          ******************************************************************************************/
+ 105          
+ 106          BOOL  SendAppAck( uint8_t cmd)
+ 107          {
+ 108   1        if (callbackQueue.requestCnt < MAX_CALLREQ_QUEUE)
+ 109   1        {
+ 110   2          callbackQueue.requestCnt++;
+ 111   2      
+ 112   2        callbackQueue.requestQueue[callbackQueue.requestIn].wCmd =cmd,
+C51 COMPILER V9.59.0.0   DRV_BLE                                                           04/27/2022 18:04:37 PAGE 3   
+
+ 113   2          if (++callbackQueue.requestIn >= MAX_CALLBACK_QUEUE)
+*** ERROR C141 IN LINE 113 OF src\drv_ble.c: syntax error near 'if', expected 'sizeof'
+ 114   2          {
+ 115   3            callbackQueue.requestIn = 0;
+ 116   3          }
+ 117   2          return TRUE;
+ 118   2        }
+ 119   1        return FALSE;
+ 120   1      }
+ 121          /******************************************************************************************
+ 122          *  FUNCTION NAME: PopNoneAckCmdQueue
+ 123          *  INPUTS:
+ 124          *  OUTPUTS:
+ 125          *  VALUE RETURNED:     void.
+ 126          *  DESCRIPTION:      
+ 127          *  CAUTIONS:    .
+ 128          ******************************************************************************************
+ 129          * MODIFICATION HISTORY:
+ 130          * Date          Person                  Change
+ 131          * ---------------------------------------------------------------------------------------
+ 132          * 9/06/2013    LIRIZHI (LRZ)         Initial creation
+ 133          ******************************************************************************************/
+ 134          void PopNoneAckCmdQueue(void)
+ 135          {
+ 136   1        if (callbackQueue.requestCnt)
+ 137   1        {
+ 138   2          callbackQueue.requestCnt--;
+ 139   2          if (++callbackQueue.requestOut >= MAX_CALLBACK_QUEUE)
+ 140   2          {
+ 141   3            callbackQueue.requestOut = 0;
+ 142   3          }
+ 143   2        }
+ 144   1        else
+ 145   1        {
+ 146   2          callbackQueue.requestOut = callbackQueue.requestIn;
+ 147   2        }
+ 148   1      
+ 149   1      }
+ 150          
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  5 ERROR(S)

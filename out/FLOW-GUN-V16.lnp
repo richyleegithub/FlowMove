@@ -1,0 +1,18 @@
+".\out\drv_battery.obj",
+".\out\drv_led.obj",
+".\out\drv_motor.obj",
+".\out\main.obj",
+".\out\startup.obj",
+".\out\drv_uart.obj",
+".\out\sys_message.obj",
+".\out\sys_manage.obj",
+".\out\drv_key.obj",
+".\out\ble_comm.obj",
+".\out\drv_timer.obj",
+".\out\utiles.obj",
+".\out\drv_adc.obj",
+".\out\drv_charge.obj" 
+TO ".\out\FLOW-GUN-V16" 
+PRINT(".\lst\FLOW-GUN-V16.m51") RAMSIZE(256) 
+CODE( 0X0000-0X3FFF )
+XDATA( 0X0000-0X01FF )

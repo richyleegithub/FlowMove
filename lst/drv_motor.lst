@@ -1,0 +1,1427 @@
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 1   
+
+
+C51 COMPILER V9.59.0.0, COMPILATION OF MODULE DRV_MOTOR
+OBJECT MODULE PLACED IN .\out\drv_motor.obj
+COMPILER INVOKED BY: C:\Keil_v5\C51\BIN\C51.EXE src\drv_motor.c OPTIMIZE(7,SPEED) BROWSE NOAREGS INCDIR(.\inc) DEFINE(xL
+                    -DO_5V) DEBUG OBJECTEXTEND CODE PRINT(.\lst\drv_motor.lst) TABS(2) OBJECT(.\out\drv_motor.obj)
+
+line level    source
+
+   1          #include  "MC96FD316.h"
+   2          
+   3          
+   4          #include    "types.h"
+   5          #include  "func_def.h"
+   6          #include  "drv_motor.h"
+   7          #include  "drv_adc.h"
+   8          #include  "sys_message.h"
+   9          #include    "utiles.h"
+  10          #include    "drv_led.h"
+  11          
+  12          
+  13          
+  14          
+  15          
+  16          //#define DEBUG_KNOCK
+  17          
+  18          
+  19          //////////////////////////////////////////////////////////////
+  20          #define   DRV_MOTOR_TICK  50
+  21          
+  22          #define   PLUSE_CHECK_TIME  (1000/DRV_MOTOR_TICK)
+  23          #define   CURRENT_CHECK_TIME  (200/DRV_MOTOR_TICK)
+  24          
+  25          
+  26          
+  27          #define     read_speed_count()    (motor_FG_pluse)
+  28          #define   rest_speed_count()   do{\
+  29                            IE &= ~0x80;\
+  30                            motor_FG_pluse=0;\
+  31                            IE |=  0x80;\
+  32                            }while(0)
+  33          
+  34          
+  35          #define drv_set_speed_duty(speed) do{\
+  36                            T2BDRL = speed&0XFF;\
+  37                            T2BDRH = (speed>>8)&0xff;\
+  38                            }while(0)
+  39          /**
+  40          X =(999*A)/3200
+  41            
+  42          ***/
+  43          
+  44          #define   SPEED_1600      (uint16_t)498
+  45          #define   SPEED_2100      (uint16_t)655
+  46          #define   SPEED_2600      (uint16_t)811
+  47          
+  48          #define     SPEED_1600_PLUSE  133
+  49          #define   SPEED_2100_PLUSE  175
+  50          #define   SPEED_2600_PLUSE  217
+  51                          
+  52          MOTOR_CTRL_t  xdata motor_ctrl;
+  53          
+  54          uint8_t   drv_motor_tick;
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 2   
+
+  55          
+  56          uint16_t  motor_FG_pluse;
+  57          
+  58          #if 0
+              /*=========================================================
+              * FUNCTION NAME: drv_set_speed_duty
+              * input :        none
+              * Output:        none
+              * description:   period drive the led io to scan led 
+              *********************************************************
+              author          release             date
+              *********************************************************
+              richy.lee       first release       2022/04/21
+              ===========================================================*/
+              void drv_set_speed_duty(uint16_t speed)
+              {
+                  T2BDRL = speed&0XFF;
+                  T2BDRH = (speed>>8)&0xff;
+              
+              }
+              #endif
+  76          
+  77          /*=========================================================
+  78          * FUNCTION NAME: drv_motor
+  79          * input :        none
+  80          * Output:        none
+  81          * description:   period drive the led io to scan led 
+  82          *********************************************************
+  83          author          release             date
+  84          *********************************************************
+  85          richy.lee       first release       2022/04/21
+  86          ===========================================================*/
+  87          uint8_t runing_current_check(uint16_t current){
+  88   1      uint8_t currrent_level;
+  89   1          if(current>=MOTOR_CURRENT_4A){
+  90   2            currrent_level=4;
+  91   2          }else if(current>=MOTOR_CURRENT_3A){
+  92   2            currrent_level=3;
+  93   2          }else if(current>=MOTOR_CURRENT_2A){
+  94   2            currrent_level=2;
+  95   2          }else if(current>=MOTOR_CURRENT_1A){
+  96   2            currrent_level=1;
+  97   2          }else{
+  98   2            currrent_level=0;
+  99   2          }
+ 100   1          return currrent_level;
+ 101   1      
+ 102   1      }
+ 103          
+ 104          /*=========================================================
+ 105          * FUNCTION NAME: drv_motor
+ 106          * input :        none
+ 107          * Output:        none
+ 108          * description:   period drive the led io to scan led 
+ 109          *********************************************************
+ 110          author          release             date
+ 111          *********************************************************
+ 112          richy.lee       first release       2022/04/21
+ 113          ===========================================================*/
+ 114          
+ 115          void Motor_Current_Check(void){
+ 116   1      uint16_t current_current;
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 3   
+
+ 117   1      uint8_t level;
+ 118   1        current_current=drv_read_adc_currrent();
+ 119   1        level=runing_current_check(current_current);
+ 120   1        if(level!=motor_ctrl.pre_level){
+ 121   2          motor_ctrl.current_debouce++;
+ 122   2          if(motor_ctrl.current_debouce>=CURRENT_CHECK_TIME){
+ 123   3            motor_ctrl.current_debouce=0;
+ 124   3            
+ 125   3            if(level>=motor_ctrl.pre_level){
+ 126   4              if(motor_ctrl.pre_level<LED_CURRENT5){
+ 127   5                motor_ctrl.pre_level++;
+ 128   5              }
+ 129   4            }else{
+ 130   4              if(motor_ctrl.pre_level>0){
+ 131   5                motor_ctrl.pre_level--;
+ 132   5              }
+ 133   4            }
+ 134   3            put_message(MSG_CURRENT_CHANGE_IND, motor_ctrl.pre_level);
+ 135   3          }
+ 136   2      
+ 137   2        }
+ 138   1        else
+ 139   1        {
+ 140   2          motor_ctrl.current_debouce=0;
+ 141   2        }
+ 142   1      
+ 143   1      }
+ 144          /*=========================================================
+ 145          * FUNCTION NAME: drv_motor
+ 146          * input :        none
+ 147          * Output:        none
+ 148          * description:   period drive the led io to scan led 
+ 149          *********************************************************
+ 150          author          release             date
+ 151          *********************************************************
+ 152          richy.lee       first release       2022/04/21
+ 153          ===========================================================*/
+ 154          void drv_motor(void){
+ 155   1      uint16_t current_speed;   
+ 156   1      
+ 157   1          if(drv_motor_tick<DRV_MOTOR_TICK) return;
+ 158   1          drv_motor_tick=0;
+ 159   1          
+ 160   1          switch(motor_ctrl.state){
+ 161   2            case MOTOR_UP_SPEED:
+ 162   2              motor_ctrl.speed_check_time++;
+ 163   2              if(motor_ctrl.speed_check_time>PLUSE_CHECK_TIME)
+ 164   2              { motor_ctrl.speed_check_time=0;
+ 165   3                current_speed=read_speed_count();
+ 166   3                rest_speed_count();
+ 167   3                if(current_speed<2){
+ 168   4                  motor_ctrl.knock_time++;
+ 169   4                  if(motor_ctrl.knock_time>=3){
+ 170   5                    motor_ctrl.knock_time=0;
+ 171   5      #ifndef DEBUG_KNOCK             
+ 172   5                    put_message(MSG_MOTOR_KNOCKED,0);
+ 173   5      #endif
+ 174   5                  }
+ 175   4                }
+ 176   3                else
+ 177   3                {
+ 178   4                    motor_ctrl.knock_time=0;
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 4   
+
+ 179   4                }
+ 180   3              }
+ 181   2          
+ 182   2              if(motor_ctrl.current_set_pwm<motor_ctrl.target_pwm){
+ 183   3                 motor_ctrl.current_set_pwm+=motor_ctrl.pwm_step;
+ 184   3              }else{
+ 185   3                motor_ctrl.target_pwm=SPEED_1600;
+ 186   3                motor_ctrl.current_set_pwm=SPEED_2600;
+ 187   3                motor_ctrl.state=MOTOR_DOWN_SPEED;
+ 188   3              }
+ 189   2              drv_set_speed_duty(motor_ctrl.current_set_pwm);
+ 190   2            break;
+ 191   2            case MOTOR_DOWN_SPEED:
+ 192   2              motor_ctrl.speed_check_time++;
+ 193   2              if(motor_ctrl.speed_check_time>PLUSE_CHECK_TIME)
+ 194   2              { motor_ctrl.speed_check_time=0;
+ 195   3                current_speed=read_speed_count();
+ 196   3                rest_speed_count();
+ 197   3                if(current_speed<2){
+ 198   4                  motor_ctrl.knock_time++;
+ 199   4                  if(motor_ctrl.knock_time>=3){
+ 200   5                    motor_ctrl.knock_time=0;
+ 201   5      #ifndef DEBUG_KNOCK             
+ 202   5                    put_message(MSG_MOTOR_KNOCKED,0);
+ 203   5      #endif
+ 204   5                  }
+ 205   4                }
+ 206   3                else
+ 207   3                {
+ 208   4                    motor_ctrl.knock_time=0;
+ 209   4                }
+ 210   3              }
+ 211   2      
+ 212   2            
+ 213   2              if(motor_ctrl.current_set_pwm>motor_ctrl.target_pwm){
+ 214   3                 motor_ctrl.current_set_pwm-=motor_ctrl.pwm_step;
+ 215   3              }else{
+ 216   3                motor_ctrl.target_pwm=SPEED_2600;
+ 217   3                motor_ctrl.current_set_pwm=SPEED_1600;
+ 218   3                motor_ctrl.state=MOTOR_UP_SPEED;
+ 219   3              }
+ 220   2              drv_set_speed_duty(motor_ctrl.current_set_pwm);
+ 221   2            break;
+ 222   2            case MOTOR_RUNING:
+ 223   2              motor_ctrl.speed_check_time++;
+ 224   2              if(motor_ctrl.speed_check_time>PLUSE_CHECK_TIME){
+ 225   3      
+ 226   3                motor_ctrl.speed_check_time=0;
+ 227   3                current_speed=read_speed_count();
+ 228   3                rest_speed_count();
+ 229   3                
+ 230   3                if(current_speed<2){
+ 231   4                  motor_ctrl.knock_time++;
+ 232   4                  if(motor_ctrl.knock_time>=3){
+ 233   5                    motor_ctrl.knock_time=0;
+ 234   5      #ifndef DEBUG_KNOCK               
+ 235   5                    put_message(MSG_MOTOR_KNOCKED,0);
+ 236   5      #endif
+ 237   5      
+ 238   5                  }
+ 239   4                }
+ 240   3                else
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 5   
+
+ 241   3                {
+ 242   4                    motor_ctrl.knock_time=0;
+ 243   4                }
+ 244   3                
+ 245   3                //if(current_speed<motor_ctrl.targe_speed_pluse){
+ 246   3                //  motor_ctrl.current_set_pwm+=2;
+ 247   3                //  drv_set_speed_duty(motor_ctrl.current_set_pwm);
+ 248   3                //}else{
+ 249   3                //  motor_ctrl.current_set_pwm-=2;
+ 250   3                //  drv_set_speed_duty(motor_ctrl.current_set_pwm);
+ 251   3                //}
+ 252   3              }
+ 253   2              break;
+ 254   2            default:
+ 255   2              break;
+ 256   2          }
+ 257   1          if(motor_ctrl.state!=MOTOR_SOP){
+ 258   2            // check motor current;
+ 259   2             Motor_Current_Check();
+ 260   2          
+ 261   2          }
+ 262   1          
+ 263   1      }
+ 264          
+ 265          /*=========================================================
+ 266          * FUNCTION NAME: drv_motor
+ 267          * input :        none
+ 268          * Output:        none
+ 269          * description:    
+ 270          *********************************************************
+ 271          author          release             date
+ 272          *********************************************************
+ 273          richy.lee       first release       2022/04/21
+ 274          ===========================================================*/
+ 275          void drv_motor_start(uint8_t mode_speed){
+ 276   1        
+ 277   1          switch(mode_speed){
+ 278   2          case MODE_SPEED_1600: 
+ 279   2      
+ 280   2            motor_ctrl.target_pwm=SPEED_1600;
+ 281   2            motor_ctrl.current_set_pwm=SPEED_1600;
+ 282   2            motor_ctrl.targe_speed_pluse=SPEED_1600_PLUSE;
+ 283   2            motor_ctrl.state=MOTOR_RUNING;
+ 284   2            break;
+ 285   2          case MODE_SPEED_2100:
+ 286   2            
+ 287   2            motor_ctrl.target_pwm=SPEED_2100;
+ 288   2            motor_ctrl.current_set_pwm=SPEED_2100;
+ 289   2            motor_ctrl.targe_speed_pluse=SPEED_2100_PLUSE;
+ 290   2            motor_ctrl.state=MOTOR_RUNING;
+ 291   2            break;
+ 292   2          case MODE_SPEED_2600:
+ 293   2            
+ 294   2            motor_ctrl.target_pwm=SPEED_2600;
+ 295   2            motor_ctrl.current_set_pwm=SPEED_2600;
+ 296   2            motor_ctrl.targe_speed_pluse=SPEED_2600_PLUSE;
+ 297   2            motor_ctrl.state=MOTOR_RUNING;
+ 298   2            break;
+ 299   2          case MODE_SPEED_FLOW:
+ 300   2            motor_ctrl.current_set_pwm=SPEED_1600;
+ 301   2            motor_ctrl.target_pwm=SPEED_2600;
+ 302   2            motor_ctrl.targe_speed_pluse=SPEED_2600_PLUSE;
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 6   
+
+ 303   2            motor_ctrl.state=MOTOR_UP_SPEED;
+ 304   2            motor_ctrl.pwm_step=5;
+ 305   2      
+ 306   2            break;
+ 307   2          default:
+ 308   2            break;
+ 309   2          }
+ 310   1          drv_set_speed_duty(motor_ctrl.current_set_pwm);
+ 311   1          T2CRH |= 0x80;    // enable counter
+ 312   1          rest_speed_count();
+ 313   1          motor_ctrl.speed_check_time=0;
+ 314   1          motor_ctrl.knock_time=0;
+ 315   1      
+ 316   1      }
+ 317          
+ 318          /*===========================================================
+ 319          * FUNCTION NAME: drv_motor_stop
+ 320          * input :        none
+ 321          * Output:        none
+ 322          * description:    
+ 323          ************************************************************
+ 324          author          release             date
+ 325          *************************************************************
+ 326          richy.lee       first release       2022/04/21
+ 327          ===========================================================*/
+ 328          void drv_motor_stop(void){
+ 329   1        
+ 330   1            drv_set_speed_duty(0);
+ 331   1          T2CRH &= ~0x80;   // enable counter
+ 332   1          motor_ctrl.target_pwm=0;
+ 333   1          motor_ctrl.current_set_pwm=0;
+ 334   1          motor_ctrl.pre_level=0;
+ 335   1          motor_ctrl.targe_speed_pluse=0;
+ 336   1          motor_ctrl.state=MOTOR_SOP;
+ 337   1      }
+ 338          
+ 339          /*=========================================================
+ 340          * FUNCTION NAME: drv_motor_stop
+ 341          * input :        none
+ 342          * Output:        none
+ 343          * description:    
+ 344          *********************************************************
+ 345          author          release             date
+ 346          *********************************************************
+ 347          richy.lee       first release       2022/04/21
+ 348          ===========================================================*/
+ 349          void drv_motor_change_mode_speed(uint8_t mode_speed){
+ 350   1        
+ 351   1          switch(mode_speed){
+ 352   2          case MODE_SPEED_1600: 
+ 353   2            drv_set_speed_duty(SPEED_1600);
+ 354   2            motor_ctrl.target_pwm=SPEED_1600;
+ 355   2            motor_ctrl.current_set_pwm=SPEED_1600;
+ 356   2            motor_ctrl.targe_speed_pluse=SPEED_1600_PLUSE;
+ 357   2            motor_ctrl.state=MOTOR_RUNING;
+ 358   2            break;
+ 359   2          case MODE_SPEED_2100:
+ 360   2            drv_set_speed_duty(SPEED_2100);
+ 361   2            motor_ctrl.target_pwm=SPEED_2100;
+ 362   2            motor_ctrl.current_set_pwm=SPEED_2100;
+ 363   2            motor_ctrl.targe_speed_pluse=SPEED_2100_PLUSE;
+ 364   2            motor_ctrl.state=MOTOR_RUNING;
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 7   
+
+ 365   2            break;
+ 366   2          case MODE_SPEED_2600:
+ 367   2            drv_set_speed_duty(SPEED_2600);
+ 368   2            motor_ctrl.target_pwm=SPEED_2600;
+ 369   2            motor_ctrl.current_set_pwm=SPEED_2600;
+ 370   2            motor_ctrl.targe_speed_pluse=SPEED_2600_PLUSE;
+ 371   2            motor_ctrl.state=MOTOR_RUNING;
+ 372   2            break;
+ 373   2          case MODE_SPEED_FLOW:
+ 374   2            motor_ctrl.current_set_pwm=SPEED_2600;
+ 375   2            motor_ctrl.target_pwm=SPEED_1600;
+ 376   2            motor_ctrl.targe_speed_pluse=SPEED_1600_PLUSE;
+ 377   2            motor_ctrl.pwm_step=5;
+ 378   2            motor_ctrl.state=MOTOR_DOWN_SPEED;
+ 379   2            break;
+ 380   2          default:
+ 381   2            break;
+ 382   2          }
+ 383   1          rest_speed_count();
+ 384   1          motor_ctrl.speed_check_time=0;
+ 385   1      }
+ 386          
+ 387          /*=========================================================
+ 388          * FUNCTION NAME: drv_motor_change_direct_speed
+ 389          * input :        none
+ 390          * Output:        none
+ 391          * description:    
+ 392          *********************************************************
+ 393          author          release             date
+ 394          *********************************************************
+ 395          richy.lee       first release       2022/04/21
+ 396          ===========================================================*/
+ 397          void drv_motor_change_direct_speed(uint16_t speed){
+ 398   1      
+ 399   1          if(speed>2650){
+ 400   2            speed=2650;
+ 401   2          }
+ 402   1          motor_ctrl.current_set_pwm=((speed*10)/32);
+ 403   1          motor_ctrl.target_pwm=motor_ctrl.current_set_pwm;
+ 404   1          drv_set_speed_duty(motor_ctrl.current_set_pwm);
+ 405   1          
+ 406   1      }
+ 407          
+ 408          /*=========================================================
+ 409          * FUNCTION NAME: drv_motor_change_direct_speed
+ 410          * input :        none
+ 411          * Output:        none
+ 412          * description:    
+ 413          *********************************************************
+ 414          author          release             date
+ 415          *********************************************************
+ 416          richy.lee       first release       2022/04/21
+ 417          ===========================================================*/
+ 418          void drv_motor_change_flow_time(uint8_t time){
+ 419   1      uint16_t  t2c;
+ 420   1          if(time>=1&&time<=5){
+ 421   2            t2c=(uint16_t)time*(1000/DRV_MOTOR_TICK);//(time*1000)/50;
+ 422   2            motor_ctrl.pwm_step=((SPEED_2600-SPEED_1600)/time);
+ 423   2          }
+ 424   1      }
+ 425          
+ 426          
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 8   
+
+ASSEMBLY LISTING OF GENERATED OBJECT CODE
+
+
+             ; FUNCTION _runing_current_check (BEGIN)
+                                           ; SOURCE LINE # 87
+;---- Variable 'currrent_level' assigned to Register 'R5' ----
+;---- Variable 'current' assigned to Register 'R6/R7' ----
+                                           ; SOURCE LINE # 89
+0000 C3                CLR     C
+0001 EF                MOV     A,R7
+0002 94F0              SUBB    A,#0F0H
+0004 EE                MOV     A,R6
+0005 9401              SUBB    A,#01H
+0007 4004              JC      ?C0001
+                                           ; SOURCE LINE # 90
+0009 7D04              MOV     R5,#04H
+                                           ; SOURCE LINE # 91
+000B 8029              SJMP    ?C0002
+000D         ?C0001:
+000D C3                CLR     C
+000E EF                MOV     A,R7
+000F 9474              SUBB    A,#074H
+0011 EE                MOV     A,R6
+0012 9401              SUBB    A,#01H
+0014 4004              JC      ?C0003
+                                           ; SOURCE LINE # 92
+0016 7D03              MOV     R5,#03H
+                                           ; SOURCE LINE # 93
+0018 801C              SJMP    ?C0002
+001A         ?C0003:
+001A C3                CLR     C
+001B EF                MOV     A,R7
+001C 94F8              SUBB    A,#0F8H
+001E EE                MOV     A,R6
+001F 9400              SUBB    A,#00H
+0021 4004              JC      ?C0005
+                                           ; SOURCE LINE # 94
+0023 7D02              MOV     R5,#02H
+                                           ; SOURCE LINE # 95
+0025 800F              SJMP    ?C0002
+0027         ?C0005:
+0027 C3                CLR     C
+0028 EF                MOV     A,R7
+0029 9466              SUBB    A,#066H
+002B EE                MOV     A,R6
+002C 9400              SUBB    A,#00H
+002E 4004              JC      ?C0007
+                                           ; SOURCE LINE # 96
+0030 7D01              MOV     R5,#01H
+                                           ; SOURCE LINE # 97
+0032 8002              SJMP    ?C0002
+0034         ?C0007:
+                                           ; SOURCE LINE # 98
+0034 E4                CLR     A
+0035 FD                MOV     R5,A
+                                           ; SOURCE LINE # 99
+0036         ?C0002:
+                                           ; SOURCE LINE # 100
+0036 ED                MOV     A,R5
+0037 FF                MOV     R7,A
+                                           ; SOURCE LINE # 102
+0038 22                RET     
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 9   
+
+             ; FUNCTION _runing_current_check (END)
+
+             ; FUNCTION Motor_Current_Check (BEGIN)
+                                           ; SOURCE LINE # 115
+                                           ; SOURCE LINE # 118
+0000 120000      E     LCALL   drv_read_adc_currrent
+;---- Variable 'current_current' assigned to Register 'R6/R7' ----
+                                           ; SOURCE LINE # 119
+0003 120000      R     LCALL   _runing_current_check
+;---- Variable 'level' assigned to Register 'R7' ----
+                                           ; SOURCE LINE # 120
+0006 900000      R     MOV     DPTR,#motor_ctrl+06H
+0009 E0                MOVX    A,@DPTR
+000A 6F                XRL     A,R7
+000B 6044              JZ      ?C0010
+                                           ; SOURCE LINE # 121
+000D A3                INC     DPTR
+000E E0                MOVX    A,@DPTR
+000F 04                INC     A
+0010 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 122
+0011 E0                MOVX    A,@DPTR
+0012 C3                CLR     C
+0013 9404              SUBB    A,#04H
+0015 7480              MOV     A,#080H
+0017 9480              SUBB    A,#080H
+0019 403B              JC      ?C0017
+                                           ; SOURCE LINE # 123
+001B E4                CLR     A
+001C F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 125
+001D 900000      R     MOV     DPTR,#motor_ctrl+06H
+0020 E0                MOVX    A,@DPTR
+0021 FE                MOV     R6,A
+0022 EF                MOV     A,R7
+0023 9E                SUBB    A,R6
+0024 400E              JC      ?C0012
+                                           ; SOURCE LINE # 126
+0026 EE                MOV     A,R6
+0027 9404              SUBB    A,#04H
+0029 7480              MOV     A,#080H
+002B 9480              SUBB    A,#080H
+002D 5015              JNC     ?C0014
+                                           ; SOURCE LINE # 127
+002F E0                MOVX    A,@DPTR
+0030 04                INC     A
+0031 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 128
+                                           ; SOURCE LINE # 129
+0032 8010              SJMP    ?C0014
+0034         ?C0012:
+                                           ; SOURCE LINE # 130
+0034 900000      R     MOV     DPTR,#motor_ctrl+06H
+0037 E0                MOVX    A,@DPTR
+0038 D3                SETB    C
+0039 9400              SUBB    A,#00H
+003B 7480              MOV     A,#080H
+003D 9480              SUBB    A,#080H
+003F 4003              JC      ?C0014
+                                           ; SOURCE LINE # 131
+0041 E0                MOVX    A,@DPTR
+0042 14                DEC     A
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 10  
+
+0043 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 132
+                                           ; SOURCE LINE # 133
+0044         ?C0014:
+                                           ; SOURCE LINE # 134
+0044 900000      R     MOV     DPTR,#motor_ctrl+06H
+0047 E0                MOVX    A,@DPTR
+0048 FD                MOV     R5,A
+0049 7C00              MOV     R4,#00H
+004B 7F04              MOV     R7,#04H
+004D 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 135
+                                           ; SOURCE LINE # 137
+0050 22                RET     
+0051         ?C0010:
+                                           ; SOURCE LINE # 139
+                                           ; SOURCE LINE # 140
+0051 E4                CLR     A
+0052 900000      R     MOV     DPTR,#motor_ctrl+07H
+0055 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 141
+                                           ; SOURCE LINE # 143
+0056         ?C0017:
+0056 22                RET     
+             ; FUNCTION Motor_Current_Check (END)
+
+             ; FUNCTION drv_motor (BEGIN)
+                                           ; SOURCE LINE # 154
+                                           ; SOURCE LINE # 157
+0000 C3                CLR     C
+0001 E500        R     MOV     A,drv_motor_tick
+0003 9432              SUBB    A,#032H
+0005 7480              MOV     A,#080H
+0007 9480              SUBB    A,#080H
+0009 5003              JNC     $ + 5H
+000B 020000      R     LJMP    ?C0019
+                                           ; SOURCE LINE # 158
+000E E4                CLR     A
+000F F500        R     MOV     drv_motor_tick,A
+                                           ; SOURCE LINE # 160
+0011 900000      R     MOV     DPTR,#motor_ctrl
+0014 E0                MOVX    A,@DPTR
+0015 24FE              ADD     A,#0FEH
+0017 7003              JNZ     $ + 5H
+0019 020000      R     LJMP    ?C0034
+001C 14                DEC     A
+001D 7003              JNZ     $ + 5H
+001F 020000      R     LJMP    ?C0047
+0022 2402              ADD     A,#02H
+0024 6003              JZ      $ + 5H
+0026 020000      R     LJMP    ?C0020
+                                           ; SOURCE LINE # 161
+0029         ?C0021:
+                                           ; SOURCE LINE # 162
+0029 900000      R     MOV     DPTR,#motor_ctrl+0AH
+002C E0                MOVX    A,@DPTR
+002D 04                INC     A
+002E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 163
+002F E0                MOVX    A,@DPTR
+0030 D3                SETB    C
+0031 9414              SUBB    A,#014H
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 11  
+
+0033 7480              MOV     A,#080H
+0035 9480              SUBB    A,#080H
+0037 403C              JC      ?C0022
+                                           ; SOURCE LINE # 164
+0039 E4                CLR     A
+003A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 165
+003B 850000      R     MOV     current_speed,motor_FG_pluse
+003E 850000      R     MOV     current_speed+01H,motor_FG_pluse+01H
+                                           ; SOURCE LINE # 166
+0041 53A87F            ANL     IE,#07FH
+0044 F500        R     MOV     motor_FG_pluse,A
+0046 F500        R     MOV     motor_FG_pluse+01H,A
+0048 43A880            ORL     IE,#080H
+                                           ; SOURCE LINE # 167
+004B E500        R     MOV     A,current_speed+01H
+004D 9402              SUBB    A,#02H
+004F E500        R     MOV     A,current_speed
+0051 9400              SUBB    A,#00H
+0053 501B              JNC     ?C0026
+                                           ; SOURCE LINE # 168
+0055 900000      R     MOV     DPTR,#motor_ctrl+09H
+0058 E0                MOVX    A,@DPTR
+0059 04                INC     A
+005A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 169
+005B E0                MOVX    A,@DPTR
+005C C3                CLR     C
+005D 9403              SUBB    A,#03H
+005F 7480              MOV     A,#080H
+0061 9480              SUBB    A,#080H
+0063 4010              JC      ?C0022
+                                           ; SOURCE LINE # 170
+0065 E4                CLR     A
+0066 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 172
+0067 FD                MOV     R5,A
+0068 FC                MOV     R4,A
+0069 7F07              MOV     R7,#07H
+006B 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 174
+                                           ; SOURCE LINE # 175
+006E 8005              SJMP    ?C0022
+0070         ?C0026:
+                                           ; SOURCE LINE # 177
+                                           ; SOURCE LINE # 178
+0070 E4                CLR     A
+0071 900000      R     MOV     DPTR,#motor_ctrl+09H
+0074 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 179
+                                           ; SOURCE LINE # 180
+0075         ?C0022:
+                                           ; SOURCE LINE # 182
+0075 900000      R     MOV     DPTR,#motor_ctrl+03H
+0078 E0                MOVX    A,@DPTR
+0079 FE                MOV     R6,A
+007A A3                INC     DPTR
+007B E0                MOVX    A,@DPTR
+007C FF                MOV     R7,A
+007D C3                CLR     C
+007E 900000      R     MOV     DPTR,#motor_ctrl+02H
+0081 E0                MOVX    A,@DPTR
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 12  
+
+0082 9F                SUBB    A,R7
+0083 900000      R     MOV     DPTR,#motor_ctrl+01H
+0086 E0                MOVX    A,@DPTR
+0087 9E                SUBB    A,R6
+0088 5014              JNC     ?C0029
+                                           ; SOURCE LINE # 183
+008A 900000      R     MOV     DPTR,#motor_ctrl+05H
+008D E0                MOVX    A,@DPTR
+008E FF                MOV     R7,A
+008F 900000      R     MOV     DPTR,#motor_ctrl+02H
+0092 E0                MOVX    A,@DPTR
+0093 2F                ADD     A,R7
+0094 F0                MOVX    @DPTR,A
+0095 900000      R     MOV     DPTR,#motor_ctrl+01H
+0098 E0                MOVX    A,@DPTR
+0099 3400              ADDC    A,#00H
+009B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 184
+009C 801A              SJMP    ?C0033
+009E         ?C0029:
+                                           ; SOURCE LINE # 185
+009E 900000      R     MOV     DPTR,#motor_ctrl+03H
+00A1 7401              MOV     A,#01H
+00A3 F0                MOVX    @DPTR,A
+00A4 A3                INC     DPTR
+00A5 74F2              MOV     A,#0F2H
+00A7 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 186
+00A8 900000      R     MOV     DPTR,#motor_ctrl+01H
+00AB 7403              MOV     A,#03H
+00AD F0                MOVX    @DPTR,A
+00AE A3                INC     DPTR
+00AF 742B              MOV     A,#02BH
+00B1 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 187
+00B2 900000      R     MOV     DPTR,#motor_ctrl
+00B5 7402              MOV     A,#02H
+00B7 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 188
+00B8         ?C0033:
+                                           ; SOURCE LINE # 189
+00B8 900000      R     MOV     DPTR,#motor_ctrl+01H
+00BB E0                MOVX    A,@DPTR
+00BC FE                MOV     R6,A
+00BD A3                INC     DPTR
+00BE E0                MOVX    A,@DPTR
+00BF F5BE              MOV     T2BDRL,A
+00C1 EE                MOV     A,R6
+00C2 F5BF              MOV     T2BDRH,A
+                                           ; SOURCE LINE # 190
+00C4 020000      R     LJMP    ?C0020
+                                           ; SOURCE LINE # 191
+00C7         ?C0034:
+                                           ; SOURCE LINE # 192
+00C7 900000      R     MOV     DPTR,#motor_ctrl+0AH
+00CA E0                MOVX    A,@DPTR
+00CB 04                INC     A
+00CC F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 193
+00CD E0                MOVX    A,@DPTR
+00CE D3                SETB    C
+00CF 9414              SUBB    A,#014H
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 13  
+
+00D1 7480              MOV     A,#080H
+00D3 9480              SUBB    A,#080H
+00D5 403C              JC      ?C0035
+                                           ; SOURCE LINE # 194
+00D7 E4                CLR     A
+00D8 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 195
+00D9 850000      R     MOV     current_speed,motor_FG_pluse
+00DC 850000      R     MOV     current_speed+01H,motor_FG_pluse+01H
+                                           ; SOURCE LINE # 196
+00DF 53A87F            ANL     IE,#07FH
+00E2 F500        R     MOV     motor_FG_pluse,A
+00E4 F500        R     MOV     motor_FG_pluse+01H,A
+00E6 43A880            ORL     IE,#080H
+                                           ; SOURCE LINE # 197
+00E9 E500        R     MOV     A,current_speed+01H
+00EB 9402              SUBB    A,#02H
+00ED E500        R     MOV     A,current_speed
+00EF 9400              SUBB    A,#00H
+00F1 501B              JNC     ?C0039
+                                           ; SOURCE LINE # 198
+00F3 900000      R     MOV     DPTR,#motor_ctrl+09H
+00F6 E0                MOVX    A,@DPTR
+00F7 04                INC     A
+00F8 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 199
+00F9 E0                MOVX    A,@DPTR
+00FA C3                CLR     C
+00FB 9403              SUBB    A,#03H
+00FD 7480              MOV     A,#080H
+00FF 9480              SUBB    A,#080H
+0101 4010              JC      ?C0035
+                                           ; SOURCE LINE # 200
+0103 E4                CLR     A
+0104 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 202
+0105 FD                MOV     R5,A
+0106 FC                MOV     R4,A
+0107 7F07              MOV     R7,#07H
+0109 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 204
+                                           ; SOURCE LINE # 205
+010C 8005              SJMP    ?C0035
+010E         ?C0039:
+                                           ; SOURCE LINE # 207
+                                           ; SOURCE LINE # 208
+010E E4                CLR     A
+010F 900000      R     MOV     DPTR,#motor_ctrl+09H
+0112 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 209
+                                           ; SOURCE LINE # 210
+0113         ?C0035:
+                                           ; SOURCE LINE # 213
+0113 900000      R     MOV     DPTR,#motor_ctrl+03H
+0116 E0                MOVX    A,@DPTR
+0117 FE                MOV     R6,A
+0118 A3                INC     DPTR
+0119 E0                MOVX    A,@DPTR
+011A FF                MOV     R7,A
+011B 900000      R     MOV     DPTR,#motor_ctrl+01H
+011E E0                MOVX    A,@DPTR
+011F FC                MOV     R4,A
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 14  
+
+0120 A3                INC     DPTR
+0121 E0                MOVX    A,@DPTR
+0122 FD                MOV     R5,A
+0123 D3                SETB    C
+0124 9F                SUBB    A,R7
+0125 EC                MOV     A,R4
+0126 9E                SUBB    A,R6
+0127 4014              JC      ?C0042
+                                           ; SOURCE LINE # 214
+0129 900000      R     MOV     DPTR,#motor_ctrl+05H
+012C E0                MOVX    A,@DPTR
+012D FF                MOV     R7,A
+012E ED                MOV     A,R5
+012F 9F                SUBB    A,R7
+0130 FE                MOV     R6,A
+0131 EC                MOV     A,R4
+0132 9400              SUBB    A,#00H
+0134 900000      R     MOV     DPTR,#motor_ctrl+01H
+0137 F0                MOVX    @DPTR,A
+0138 A3                INC     DPTR
+0139 CE                XCH     A,R6
+013A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 215
+013B 801A              SJMP    ?C0046
+013D         ?C0042:
+                                           ; SOURCE LINE # 216
+013D 900000      R     MOV     DPTR,#motor_ctrl+03H
+0140 7403              MOV     A,#03H
+0142 F0                MOVX    @DPTR,A
+0143 A3                INC     DPTR
+0144 742B              MOV     A,#02BH
+0146 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 217
+0147 900000      R     MOV     DPTR,#motor_ctrl+01H
+014A 7401              MOV     A,#01H
+014C F0                MOVX    @DPTR,A
+014D A3                INC     DPTR
+014E 74F2              MOV     A,#0F2H
+0150 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 218
+0151 900000      R     MOV     DPTR,#motor_ctrl
+0154 7401              MOV     A,#01H
+0156 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 219
+0157         ?C0046:
+                                           ; SOURCE LINE # 220
+0157 900000      R     MOV     DPTR,#motor_ctrl+01H
+015A E0                MOVX    A,@DPTR
+015B FE                MOV     R6,A
+015C A3                INC     DPTR
+015D E0                MOVX    A,@DPTR
+015E F5BE              MOV     T2BDRL,A
+0160 EE                MOV     A,R6
+0161 F5BF              MOV     T2BDRH,A
+                                           ; SOURCE LINE # 221
+0163 804C              SJMP    ?C0020
+                                           ; SOURCE LINE # 222
+0165         ?C0047:
+                                           ; SOURCE LINE # 223
+0165 900000      R     MOV     DPTR,#motor_ctrl+0AH
+0168 E0                MOVX    A,@DPTR
+0169 04                INC     A
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 15  
+
+016A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 224
+016B E0                MOVX    A,@DPTR
+016C D3                SETB    C
+016D 9414              SUBB    A,#014H
+016F 7480              MOV     A,#080H
+0171 9480              SUBB    A,#080H
+0173 403C              JC      ?C0020
+                                           ; SOURCE LINE # 226
+0175 E4                CLR     A
+0176 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 227
+0177 850000      R     MOV     current_speed,motor_FG_pluse
+017A 850000      R     MOV     current_speed+01H,motor_FG_pluse+01H
+                                           ; SOURCE LINE # 228
+017D 53A87F            ANL     IE,#07FH
+0180 F500        R     MOV     motor_FG_pluse,A
+0182 F500        R     MOV     motor_FG_pluse+01H,A
+0184 43A880            ORL     IE,#080H
+                                           ; SOURCE LINE # 230
+0187 E500        R     MOV     A,current_speed+01H
+0189 9402              SUBB    A,#02H
+018B E500        R     MOV     A,current_speed
+018D 9400              SUBB    A,#00H
+018F 501B              JNC     ?C0052
+                                           ; SOURCE LINE # 231
+0191 900000      R     MOV     DPTR,#motor_ctrl+09H
+0194 E0                MOVX    A,@DPTR
+0195 04                INC     A
+0196 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 232
+0197 E0                MOVX    A,@DPTR
+0198 C3                CLR     C
+0199 9403              SUBB    A,#03H
+019B 7480              MOV     A,#080H
+019D 9480              SUBB    A,#080H
+019F 4010              JC      ?C0020
+                                           ; SOURCE LINE # 233
+01A1 E4                CLR     A
+01A2 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 235
+01A3 FD                MOV     R5,A
+01A4 FC                MOV     R4,A
+01A5 7F07              MOV     R7,#07H
+01A7 120000      E     LCALL   _put_message
+                                           ; SOURCE LINE # 238
+                                           ; SOURCE LINE # 239
+01AA 8005              SJMP    ?C0020
+01AC         ?C0052:
+                                           ; SOURCE LINE # 241
+                                           ; SOURCE LINE # 242
+01AC E4                CLR     A
+01AD 900000      R     MOV     DPTR,#motor_ctrl+09H
+01B0 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 243
+                                           ; SOURCE LINE # 252
+                                           ; SOURCE LINE # 253
+                                           ; SOURCE LINE # 254
+                                           ; SOURCE LINE # 255
+                                           ; SOURCE LINE # 256
+01B1         ?C0020:
+                                           ; SOURCE LINE # 257
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 16  
+
+01B1 900000      R     MOV     DPTR,#motor_ctrl
+01B4 E0                MOVX    A,@DPTR
+01B5 6003              JZ      ?C0019
+                                           ; SOURCE LINE # 259
+01B7 120000      R     LCALL   Motor_Current_Check
+                                           ; SOURCE LINE # 261
+                                           ; SOURCE LINE # 263
+01BA         ?C0019:
+01BA 22                RET     
+             ; FUNCTION drv_motor (END)
+
+             ; FUNCTION _drv_motor_start (BEGIN)
+                                           ; SOURCE LINE # 275
+;---- Variable 'mode_speed' assigned to Register 'R7' ----
+                                           ; SOURCE LINE # 277
+0000 EF                MOV     A,R7
+0001 14                DEC     A
+0002 602F              JZ      ?C0059
+0004 14                DEC     A
+0005 604E              JZ      ?C0060
+0007 14                DEC     A
+0008 606D              JZ      ?C0061
+000A 2403              ADD     A,#03H
+000C 6003              JZ      $ + 5H
+000E 020000      R     LJMP    ?C0065
+                                           ; SOURCE LINE # 278
+0011         ?C0058:
+                                           ; SOURCE LINE # 280
+0011 900000      R     MOV     DPTR,#motor_ctrl+03H
+0014 7401              MOV     A,#01H
+0016 F0                MOVX    @DPTR,A
+0017 A3                INC     DPTR
+0018 74F2              MOV     A,#0F2H
+001A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 281
+001B 900000      R     MOV     DPTR,#motor_ctrl+01H
+001E 7401              MOV     A,#01H
+0020 F0                MOVX    @DPTR,A
+0021 A3                INC     DPTR
+0022 74F2              MOV     A,#0F2H
+0024 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 282
+0025 900000      R     MOV     DPTR,#motor_ctrl+08H
+0028 7485              MOV     A,#085H
+002A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 283
+002B 900000      R     MOV     DPTR,#motor_ctrl
+002E 7403              MOV     A,#03H
+0030 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 284
+0031 8068              SJMP    ?C0065
+                                           ; SOURCE LINE # 285
+0033         ?C0059:
+                                           ; SOURCE LINE # 287
+0033 900000      R     MOV     DPTR,#motor_ctrl+03H
+0036 7402              MOV     A,#02H
+0038 F0                MOVX    @DPTR,A
+0039 A3                INC     DPTR
+003A 748F              MOV     A,#08FH
+003C F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 288
+003D 900000      R     MOV     DPTR,#motor_ctrl+01H
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 17  
+
+0040 7402              MOV     A,#02H
+0042 F0                MOVX    @DPTR,A
+0043 A3                INC     DPTR
+0044 748F              MOV     A,#08FH
+0046 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 289
+0047 900000      R     MOV     DPTR,#motor_ctrl+08H
+004A 74AF              MOV     A,#0AFH
+004C F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 290
+004D 900000      R     MOV     DPTR,#motor_ctrl
+0050 7403              MOV     A,#03H
+0052 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 291
+0053 8046              SJMP    ?C0065
+                                           ; SOURCE LINE # 292
+0055         ?C0060:
+                                           ; SOURCE LINE # 294
+0055 900000      R     MOV     DPTR,#motor_ctrl+03H
+0058 7403              MOV     A,#03H
+005A F0                MOVX    @DPTR,A
+005B A3                INC     DPTR
+005C 742B              MOV     A,#02BH
+005E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 295
+005F 900000      R     MOV     DPTR,#motor_ctrl+01H
+0062 7403              MOV     A,#03H
+0064 F0                MOVX    @DPTR,A
+0065 A3                INC     DPTR
+0066 742B              MOV     A,#02BH
+0068 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 296
+0069 900000      R     MOV     DPTR,#motor_ctrl+08H
+006C 74D9              MOV     A,#0D9H
+006E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 297
+006F 900000      R     MOV     DPTR,#motor_ctrl
+0072 7403              MOV     A,#03H
+0074 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 298
+0075 8024              SJMP    ?C0065
+                                           ; SOURCE LINE # 299
+0077         ?C0061:
+                                           ; SOURCE LINE # 300
+0077 900000      R     MOV     DPTR,#motor_ctrl+01H
+007A 7401              MOV     A,#01H
+007C F0                MOVX    @DPTR,A
+007D A3                INC     DPTR
+007E 74F2              MOV     A,#0F2H
+0080 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 301
+0081 A3                INC     DPTR
+0082 7403              MOV     A,#03H
+0084 F0                MOVX    @DPTR,A
+0085 A3                INC     DPTR
+0086 742B              MOV     A,#02BH
+0088 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 302
+0089 900000      R     MOV     DPTR,#motor_ctrl+08H
+008C 74D9              MOV     A,#0D9H
+008E F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 303
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 18  
+
+008F 900000      R     MOV     DPTR,#motor_ctrl
+0092 7401              MOV     A,#01H
+0094 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 304
+0095 900000      R     MOV     DPTR,#motor_ctrl+05H
+0098 7405              MOV     A,#05H
+009A F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 306
+                                           ; SOURCE LINE # 307
+                                           ; SOURCE LINE # 308
+                                           ; SOURCE LINE # 309
+009B         ?C0065:
+                                           ; SOURCE LINE # 310
+009B 900000      R     MOV     DPTR,#motor_ctrl+01H
+009E E0                MOVX    A,@DPTR
+009F FE                MOV     R6,A
+00A0 A3                INC     DPTR
+00A1 E0                MOVX    A,@DPTR
+00A2 F5BE              MOV     T2BDRL,A
+00A4 EE                MOV     A,R6
+00A5 F5BF              MOV     T2BDRH,A
+                                           ; SOURCE LINE # 311
+00A7 43BB80            ORL     T2CRH,#080H
+                                           ; SOURCE LINE # 312
+00AA 53A87F            ANL     IE,#07FH
+00AD E4                CLR     A
+00AE F500        R     MOV     motor_FG_pluse,A
+00B0 F500        R     MOV     motor_FG_pluse+01H,A
+00B2 43A880            ORL     IE,#080H
+                                           ; SOURCE LINE # 313
+00B5 900000      R     MOV     DPTR,#motor_ctrl+0AH
+00B8 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 314
+00B9 900000      R     MOV     DPTR,#motor_ctrl+09H
+00BC F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 316
+00BD 22                RET     
+             ; FUNCTION _drv_motor_start (END)
+
+             ; FUNCTION drv_motor_stop (BEGIN)
+                                           ; SOURCE LINE # 328
+                                           ; SOURCE LINE # 330
+0000 E4                CLR     A
+0001 F5BE              MOV     T2BDRL,A
+0003 F5BF              MOV     T2BDRH,A
+                                           ; SOURCE LINE # 331
+0005 53BB7F            ANL     T2CRH,#07FH
+                                           ; SOURCE LINE # 332
+0008 900000      R     MOV     DPTR,#motor_ctrl+03H
+000B F0                MOVX    @DPTR,A
+000C A3                INC     DPTR
+000D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 333
+000E 900000      R     MOV     DPTR,#motor_ctrl+01H
+0011 F0                MOVX    @DPTR,A
+0012 A3                INC     DPTR
+0013 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 334
+0014 900000      R     MOV     DPTR,#motor_ctrl+06H
+0017 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 335
+0018 900000      R     MOV     DPTR,#motor_ctrl+08H
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 19  
+
+001B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 336
+001C 900000      R     MOV     DPTR,#motor_ctrl
+001F F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 337
+0020 22                RET     
+             ; FUNCTION drv_motor_stop (END)
+
+             ; FUNCTION _drv_motor_change_mode_speed (BEGIN)
+                                           ; SOURCE LINE # 349
+;---- Variable 'mode_speed' assigned to Register 'R7' ----
+                                           ; SOURCE LINE # 351
+0000 EF                MOV     A,R7
+0001 14                DEC     A
+0002 6038              JZ      ?C0082
+0004 14                DEC     A
+0005 605D              JZ      ?C0086
+0007 14                DEC     A
+0008 7003              JNZ     $ + 5H
+000A 020000      R     LJMP    ?C0087
+000D 2403              ADD     A,#03H
+000F 6003              JZ      $ + 5H
+0011 020000      R     LJMP    ?C0091
+                                           ; SOURCE LINE # 352
+0014         ?C0078:
+                                           ; SOURCE LINE # 353
+0014 75BEF2            MOV     T2BDRL,#0F2H
+0017 75BF01            MOV     T2BDRH,#01H
+                                           ; SOURCE LINE # 354
+001A 900000      R     MOV     DPTR,#motor_ctrl+03H
+001D 7401              MOV     A,#01H
+001F F0                MOVX    @DPTR,A
+0020 A3                INC     DPTR
+0021 74F2              MOV     A,#0F2H
+0023 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 355
+0024 900000      R     MOV     DPTR,#motor_ctrl+01H
+0027 7401              MOV     A,#01H
+0029 F0                MOVX    @DPTR,A
+002A A3                INC     DPTR
+002B 74F2              MOV     A,#0F2H
+002D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 356
+002E 900000      R     MOV     DPTR,#motor_ctrl+08H
+0031 7485              MOV     A,#085H
+0033 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 357
+0034 900000      R     MOV     DPTR,#motor_ctrl
+0037 7403              MOV     A,#03H
+0039 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 358
+003A 8074              SJMP    ?C0091
+                                           ; SOURCE LINE # 359
+003C         ?C0082:
+                                           ; SOURCE LINE # 360
+003C 75BE8F            MOV     T2BDRL,#08FH
+003F 75BF02            MOV     T2BDRH,#02H
+                                           ; SOURCE LINE # 361
+0042 900000      R     MOV     DPTR,#motor_ctrl+03H
+0045 7402              MOV     A,#02H
+0047 F0                MOVX    @DPTR,A
+0048 A3                INC     DPTR
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 20  
+
+0049 748F              MOV     A,#08FH
+004B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 362
+004C 900000      R     MOV     DPTR,#motor_ctrl+01H
+004F 7402              MOV     A,#02H
+0051 F0                MOVX    @DPTR,A
+0052 A3                INC     DPTR
+0053 748F              MOV     A,#08FH
+0055 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 363
+0056 900000      R     MOV     DPTR,#motor_ctrl+08H
+0059 74AF              MOV     A,#0AFH
+005B F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 364
+005C 900000      R     MOV     DPTR,#motor_ctrl
+005F 7403              MOV     A,#03H
+0061 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 365
+0062 804C              SJMP    ?C0091
+                                           ; SOURCE LINE # 366
+0064         ?C0086:
+                                           ; SOURCE LINE # 367
+0064 75BE2B            MOV     T2BDRL,#02BH
+0067 75BF03            MOV     T2BDRH,#03H
+                                           ; SOURCE LINE # 368
+006A 900000      R     MOV     DPTR,#motor_ctrl+03H
+006D 7403              MOV     A,#03H
+006F F0                MOVX    @DPTR,A
+0070 A3                INC     DPTR
+0071 742B              MOV     A,#02BH
+0073 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 369
+0074 900000      R     MOV     DPTR,#motor_ctrl+01H
+0077 7403              MOV     A,#03H
+0079 F0                MOVX    @DPTR,A
+007A A3                INC     DPTR
+007B 742B              MOV     A,#02BH
+007D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 370
+007E 900000      R     MOV     DPTR,#motor_ctrl+08H
+0081 74D9              MOV     A,#0D9H
+0083 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 371
+0084 900000      R     MOV     DPTR,#motor_ctrl
+0087 7403              MOV     A,#03H
+0089 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 372
+008A 8024              SJMP    ?C0091
+                                           ; SOURCE LINE # 373
+008C         ?C0087:
+                                           ; SOURCE LINE # 374
+008C 900000      R     MOV     DPTR,#motor_ctrl+01H
+008F 7403              MOV     A,#03H
+0091 F0                MOVX    @DPTR,A
+0092 A3                INC     DPTR
+0093 742B              MOV     A,#02BH
+0095 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 375
+0096 A3                INC     DPTR
+0097 7401              MOV     A,#01H
+0099 F0                MOVX    @DPTR,A
+009A A3                INC     DPTR
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 21  
+
+009B 74F2              MOV     A,#0F2H
+009D F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 376
+009E 900000      R     MOV     DPTR,#motor_ctrl+08H
+00A1 7485              MOV     A,#085H
+00A3 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 377
+00A4 900000      R     MOV     DPTR,#motor_ctrl+05H
+00A7 7405              MOV     A,#05H
+00A9 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 378
+00AA 900000      R     MOV     DPTR,#motor_ctrl
+00AD 7402              MOV     A,#02H
+00AF F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 379
+                                           ; SOURCE LINE # 380
+                                           ; SOURCE LINE # 381
+                                           ; SOURCE LINE # 382
+00B0         ?C0091:
+                                           ; SOURCE LINE # 383
+00B0 53A87F            ANL     IE,#07FH
+00B3 E4                CLR     A
+00B4 F500        R     MOV     motor_FG_pluse,A
+00B6 F500        R     MOV     motor_FG_pluse+01H,A
+00B8 43A880            ORL     IE,#080H
+                                           ; SOURCE LINE # 384
+00BB 900000      R     MOV     DPTR,#motor_ctrl+0AH
+00BE F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 385
+00BF 22                RET     
+             ; FUNCTION _drv_motor_change_mode_speed (END)
+
+             ; FUNCTION _drv_motor_change_direct_speed (BEGIN)
+                                           ; SOURCE LINE # 397
+;---- Variable 'speed' assigned to Register 'R6/R7' ----
+                                           ; SOURCE LINE # 399
+0000 D3                SETB    C
+0001 EF                MOV     A,R7
+0002 945A              SUBB    A,#05AH
+0004 EE                MOV     A,R6
+0005 940A              SUBB    A,#0AH
+0007 4004              JC      ?C0093
+                                           ; SOURCE LINE # 400
+0009 7E0A              MOV     R6,#0AH
+000B 7F5A              MOV     R7,#05AH
+                                           ; SOURCE LINE # 401
+000D         ?C0093:
+                                           ; SOURCE LINE # 402
+000D 7C00              MOV     R4,#00H
+000F 7D0A              MOV     R5,#0AH
+0011 120000      E     LCALL   ?C?IMUL
+0014 7805              MOV     R0,#05H
+0016 EF                MOV     A,R7
+0017         ?C0100:
+0017 CE                XCH     A,R6
+0018 C3                CLR     C
+0019 13                RRC     A
+001A CE                XCH     A,R6
+001B 13                RRC     A
+001C D8F9              DJNZ    R0,?C0100
+001E FF                MOV     R7,A
+001F 900000      R     MOV     DPTR,#motor_ctrl+01H
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 22  
+
+0022 EE                MOV     A,R6
+0023 F0                MOVX    @DPTR,A
+0024 A3                INC     DPTR
+0025 EF                MOV     A,R7
+0026 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 403
+0027 A3                INC     DPTR
+0028 EE                MOV     A,R6
+0029 F0                MOVX    @DPTR,A
+002A A3                INC     DPTR
+002B EF                MOV     A,R7
+002C F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 404
+002D 900000      R     MOV     DPTR,#motor_ctrl+01H
+0030 E0                MOVX    A,@DPTR
+0031 FE                MOV     R6,A
+0032 A3                INC     DPTR
+0033 E0                MOVX    A,@DPTR
+0034 F5BE              MOV     T2BDRL,A
+0036 EE                MOV     A,R6
+0037 F5BF              MOV     T2BDRH,A
+                                           ; SOURCE LINE # 406
+0039 22                RET     
+             ; FUNCTION _drv_motor_change_direct_speed (END)
+
+             ; FUNCTION _drv_motor_change_flow_time (BEGIN)
+                                           ; SOURCE LINE # 418
+;---- Variable 'time' assigned to Register 'R3' ----
+0000 EF                MOV     A,R7
+0001 FB                MOV     R3,A
+                                           ; SOURCE LINE # 420
+0002 7E00              MOV     R6,#00H
+0004 C3                CLR     C
+0005 9401              SUBB    A,#01H
+0007 7480              MOV     A,#080H
+0009 9480              SUBB    A,#080H
+000B 4024              JC      ?C0099
+000D D3                SETB    C
+000E EF                MOV     A,R7
+000F 9405              SUBB    A,#05H
+0011 7480              MOV     A,#080H
+0013 9480              SUBB    A,#080H
+0015 501A              JNC     ?C0099
+                                           ; SOURCE LINE # 421
+0017 EB                MOV     A,R3
+0018 7C00              MOV     R4,#00H
+001A 7D14              MOV     R5,#014H
+001C 120000      E     LCALL   ?C?IMUL
+001F 8E00        R     MOV     t2c,R6
+0021 8F00        R     MOV     t2c+01H,R7
+                                           ; SOURCE LINE # 422
+0023 EB                MOV     A,R3
+0024 FD                MOV     R5,A
+0025 7E01              MOV     R6,#01H
+0027 7F39              MOV     R7,#039H
+0029 120000      E     LCALL   ?C?UIDIV
+002C 900000      R     MOV     DPTR,#motor_ctrl+05H
+002F EF                MOV     A,R7
+0030 F0                MOVX    @DPTR,A
+                                           ; SOURCE LINE # 423
+                                           ; SOURCE LINE # 424
+0031         ?C0099:
+C51 COMPILER V9.59.0.0   DRV_MOTOR                                                         06/28/2022 11:43:44 PAGE 23  
+
+0031 22                RET     
+             ; FUNCTION _drv_motor_change_flow_time (END)
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1110    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     11    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      3       4
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
